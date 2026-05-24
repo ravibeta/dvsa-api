@@ -1,0 +1,28 @@
+dvsa-api/
+├── config/                 # Project configuration
+│   ├── settings/           # Environment-specific settings
+│   │   ├── base.py        # Base settings
+│   │   ├── development.py # Development settings
+│   │   ├── production.py   # Production settings
+│   │   └── testing.py      # Testing settings
+│   ├── urls.py
+│   └── wsgi.py
+├── apps/                   # Django apps
+│   ├── users/              # User management
+│   ├── videos/             # Video management
+│   ├── analytics/          # Analytics engine
+│   ├── storage/            # Cloud storage integration
+│   └── api/                # API v1 routes
+├── core/                   # Core utilities
+│   ├── authentication.py
+│   ├── permissions.py
+│   ├── exceptions.py
+│   ├── pagination.py
+│   └── utils.py
+├── scripts/                # Management scripts
+├── tests/                  # Test suite
+├── docker/                 # Docker configuration
+├── requirements/           # Dependency files
+├── .env.example           # Environment template
+├── manage.py
+└── wsgi.py
