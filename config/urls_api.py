@@ -1,23 +1,15 @@
 """
 API v1 URL configuration for DVSA API project.
+
+Each Django app owns its routes via its own ``urls.py`` (generic-view based);
+this module simply namespaces and includes them under ``/api/v1/``.
 """
 
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-
-router = DefaultRouter()
-
-# Import viewsets from apps
-from apps.users.views import UserViewSet, AuthViewSet
-from apps.videos.views import VideoViewSet
-from apps.analytics.views import AnalyticsViewSet
-
-# Register viewsets
-router.register(r"users", UserViewSet, basename="user")
-router.register(r"auth", AuthViewSet, basename="auth")
-router.register(r"videos", VideoViewSet, basename="video")
-router.register(r"analytics", AnalyticsViewSet, basename="analytics")
+from django.urls import include, path
 
 urlpatterns = [
-    path("", include(router.urls)),
+    path("users/", include("apps.users.urls")),
+    path("videos/", include("apps.videos.urls")),
+    path("analytics/", include("apps.analytics.urls")),
+    path("storage/", include("apps.storage.urls")),
 ]
