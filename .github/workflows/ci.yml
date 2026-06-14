@@ -15,6 +15,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements/dev.txt
 
       # OpenCV (opencv-python) needs these shared libraries at import time.
       - name: Install OpenCV system libraries
