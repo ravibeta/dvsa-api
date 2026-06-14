@@ -12,4 +12,5 @@ urlpatterns = [
     path("videos/", include("apps.videos.urls")),
     path("analytics/", include("apps.analytics.urls")),
     path("storage/", include("apps.storage.urls")),
+    path("observability/", include("apps.observability.urls")),
 ]

@@ -40,6 +40,7 @@ LOCAL_APPS = [
     "apps.videos.apps.VideosConfig",
     "apps.analytics.apps.AnalyticsConfig",
     "apps.storage.apps.StorageConfig",
+    "apps.observability.apps.ObservabilityConfig",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -253,3 +254,25 @@ ALLOWED_VIDEO_FORMATS = os.environ.get("ALLOWED_VIDEO_FORMATS", "mp4,avi,mov,mkv
 # Geospatial Configuration
 GEOSPATIAL_ENABLED = os.environ.get("GEOSPATIAL_ENABLED", "True") == "True"
 GPS_PRECISION_METERS = int(os.environ.get("GPS_PRECISION_METERS", 5))
+
+# Commentary-driven Observability Layer
+# Parallel telemetry layer that turns vision-routine output into wide,
+# query-time-aggregatable commentary events. Disabled by default so existing
+# vision runs are unaffected until explicitly switched on.
+COMMENTARY_ENABLED = os.environ.get("COMMENTARY_ENABLED", "False") == "True"
+# Sink for routine-generated commentary: "null" | "db" | "memory" | "otel".
+# Comma-separated values fan out to all (e.g. "db,otel").
+COMMENTARY_SINK = os.environ.get("COMMENTARY_SINK", "db")
+# Commentary generator: "template" (deterministic, no LLM) | "vlm" (model-backed).
+COMMENTARY_COMMENTATOR = os.environ.get("COMMENTARY_COMMENTATOR", "template")
+# LLM backend for the "vlm" commentator and the semantic agent (Phase 4):
+# "echo" (deterministic, offline) | "azure" (Azure OpenAI via AZURE_OPENAI_*).
+COMMENTARY_LLM = os.environ.get("COMMENTARY_LLM", "echo")
+AZURE_OPENAI_API_VERSION = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01")
+
+# MELT / OpenTelemetry export (Phase 3). Commentary -> Logs, derived metrics ->
+# Metrics, routine spans -> Traces, shipped over OTLP/HTTP+JSON to any collector.
+# Base endpoint (no signal suffix), e.g. "http://localhost:4318".
+OTEL_EXPORTER_OTLP_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+OTEL_SERVICE_NAME = os.environ.get("OTEL_SERVICE_NAME", "dvsa-api")
+COMMENTARY_OTEL_SIGNALS = os.environ.get("COMMENTARY_OTEL_SIGNALS", "logs,metrics,traces")
