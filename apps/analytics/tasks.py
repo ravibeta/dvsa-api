@@ -117,6 +117,27 @@ def run_video_analysis(
         analysis.completed_at = timezone.now()
         analysis.error_message = None
         analysis.save()
+
+        # Parallel, orthogonal observability layer: turn the (unchanged) routine
+        # output into wide commentary events. Guarded by a setting and wrapped so
+        # commentary never affects the vision run's success.
+        from django.conf import settings
+
+        if getattr(settings, "COMMENTARY_ENABLED", False):
+            try:
+                from apps.observability.emit import emit_analysis_commentary
+
+                summary = emit_analysis_commentary(
+                    results,
+                    video_id=analysis.video_id,
+                    analysis_id=analysis.id,
+                )
+                logger.info(
+                    "Commentary emitted for analysis %s: %s events (trace %s)",
+                    analysis_id, summary["emitted"], summary["trace_id"],
+                )
+            except Exception:  # noqa: BLE001 - observability must not break analysis
+                logger.exception("Commentary emission failed for analysis %s", analysis_id)
     except Exception as exc:  # noqa: BLE001 - record failure on the model
         logger.exception("Analysis %s failed", analysis_id)
         analysis.status = "failed"
