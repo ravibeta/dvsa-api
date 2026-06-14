@@ -200,12 +200,18 @@ _COMMENTATORS: Dict[str, Callable[[], Commentator]] = {
 def get_commentator(name: str = "template") -> Commentator:
     """Return a commentator instance by name (defaults to the template one)."""
 
+    if name == "vlm":
+        # Lazy import keeps the LLM dependency out of the core import path and
+        # avoids a circular import (vlm imports this module's base class).
+        from .vlm import AzureVLMCommentator
+
+        return AzureVLMCommentator()
     try:
         return _COMMENTATORS[name]()
     except KeyError as exc:  # pragma: no cover - trivial
         raise KeyError(
             "Unknown commentator '%s'. Available: %s"
-            % (name, sorted(_COMMENTATORS))
+            % (name, sorted(_COMMENTATORS) + ["vlm"])
         ) from exc
 
 

@@ -74,3 +74,78 @@ def ingest_event(validated: Dict[str, Any]) -> CommentaryEvent:
     sink.emit(event)
     sink.flush()
     return event
+
+
+def _record_to_event(rec) -> CommentaryEvent:
+    """Rehydrate a stored ``CommentaryEventRecord`` into a ``CommentaryEvent``."""
+
+    return CommentaryEvent(
+        commentary=rec.commentary,
+        attributes=rec.attributes or {},
+        metrics=rec.metrics or {},
+        metadata=rec.metadata or {},
+        event_id=rec.event_id,
+        trace_id=rec.trace_id,
+        span_id=rec.span_id,
+        parent_span_id=rec.parent_span_id,
+        correlation_key=rec.correlation_key,
+        timestamp=rec.timestamp.isoformat() if rec.timestamp else None,
+        source=rec.source,
+        video_id=rec.video_id,
+        analysis_id=rec.analysis_id,
+        frame_index=rec.frame_index,
+        segment_start=rec.segment_start,
+        segment_end=rec.segment_end,
+        schema_version=rec.schema_version,
+    )
+
+
+def run_semantic_agent(
+    *,
+    video_id: Optional[int] = None,
+    trace_id: Optional[str] = None,
+    analysis_id: Optional[int] = None,
+    scope: str = "video",
+    limit: int = 5000,
+) -> Dict[str, Any]:
+    """Run the semantic aggregation agent over stored low-level events.
+
+    Selects events by ``video_id`` or ``trace_id`` (its own ``agent:semantic``
+    output is excluded so summaries don't recursively summarise themselves),
+    produces a higher-level event, persists it, and returns a summary. The new
+    event shares the source events' ``trace_id`` and links their span ids.
+    """
+
+    from .agents import SemanticAggregatorAgent
+    from .llm import get_llm_client
+    from .models import CommentaryEventRecord
+
+    qs = CommentaryEventRecord.objects.exclude(source="agent:semantic")
+    if video_id is not None:
+        qs = qs.filter(video_id=video_id)
+    if trace_id:
+        qs = qs.filter(trace_id=trace_id)
+    if analysis_id is not None:
+        qs = qs.filter(analysis_id=analysis_id)
+
+    records = list(qs.order_by("timestamp")[:limit])
+    if not records:
+        return {"summarized": 0, "events": []}
+
+    source_events = [_record_to_event(r) for r in records]
+    agent = SemanticAggregatorAgent(get_llm_client())
+    new_events = agent.summarize(
+        source_events,
+        trace_id=trace_id,
+        video_id=video_id,
+        analysis_id=analysis_id,
+        scope=scope,
+    )
+
+    sink = DjangoModelSink()
+    sink.emit_many(new_events)
+    sink.flush()
+    return {
+        "summarized": len(source_events),
+        "events": [e.to_dict() for e in new_events],
+    }

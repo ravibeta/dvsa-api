@@ -16,6 +16,9 @@ Implements Phases 0–2 of the *"From Video to Commentary"* framework.
 | `sinks.py` | core | lazy | `CommentarySink` ABC, `Null`/`InMemory`/`DjangoModel`/`OTel`/`Tee` sinks, `get_sink()` |
 | `aggregation.py` | core | no | `aggregate_events()` — query-time roll-ups over raw events |
 | `otel.py` | core | no | OTLP/HTTP+JSON payload builders (logs/metrics/traces) + `OTLPHttpExporter` |
+| `llm.py` | core | lazy | `LLMClient` interface, `Echo` (offline) + `AzureOpenAIChat` clients |
+| `vlm.py` | core | no | `AzureVLMCommentator` — model-backed commentary behind the `Commentator` interface |
+| `agents.py` | core | no | `SemanticAggregatorAgent` — rolls low-level events into higher-level scene commentary |
 | `emit.py` | glue | yes | `emit_analysis_commentary()` (task hook), `ingest_event()` (API) |
 | `models.py` | store | yes | `CommentaryEventRecord` wide table |
 | `views.py` / `serializers.py` / `urls.py` | api | yes | ingest / list / aggregate endpoints |
@@ -38,6 +41,7 @@ commentary → agent commentary).
 | `POST` | `events/` | Inject a custom event (only `commentary` required; rest server-filled) |
 | `GET` | `events/` | List raw events; filter by `trace_id`, `video_id`, `source`, `correlation_key`, `frame_index`, … |
 | `GET` | `events/aggregate/` | Query-time roll-up: `?group_by=source&metrics=count,sum:count,avg:mean_score` |
+| `POST` | `agents/summarize/` | Run the semantic agent over stored events (`{"video_id"}` and/or `{"trace_id"}`, optional `scope`) → higher-level event |
 
 ## Enabling
 
@@ -80,11 +84,36 @@ Consistent with the rest of the repo, no migration is committed (the
 python manage.py makemigrations observability && python manage.py migrate
 ```
 
+## Agentic / model-backed commentary (Phase 4)
+
+Two model-backed layers, both with deterministic offline fallbacks so they never
+break a run and stay testable without credentials:
+
+* **`AzureVLMCommentator`** (`COMMENTARY_COMMENTATOR=vlm`) — generates richer
+  per-frame commentary via an `LLMClient`; on any model error it falls back to
+  the template commentary.
+* **`SemanticAggregatorAgent`** (`POST agents/summarize/`) — consumes low-level
+  per-frame events and emits a higher-level scene/trace summary, sharing the
+  source `trace_id` and linking the children's span ids (`derived_from_spans`),
+  correlated by `correlation_key`.
+
+The LLM backend is provider-agnostic behind `LLMClient`; the shipped
+implementation targets the repo's existing **Azure OpenAI** integration over its
+REST API (stdlib only, no new dependency):
+
+```bash
+COMMENTARY_COMMENTATOR=vlm
+COMMENTARY_LLM=azure            # echo (offline default) | azure
+AZURE_OPENAI_ENDPOINT=...       # existing settings reused
+AZURE_OPENAI_API_KEY=...
+AZURE_OPENAI_GPT_DEPLOYMENT=...
+AZURE_OPENAI_API_VERSION=2024-06-01
+```
+
 ## Roadmap
 
-* **Phase 3 — MELT/OTel:** ✅ done. `OTelSink` + `otel.py` export logs/metrics/
-  traces over OTLP/HTTP+JSON; `TeeSink` fans out (e.g. `db,otel`).
-* **Phase 4 — Agentic commentary:** add `AzureVLMCommentator` (uses existing
-  `AZURE_OPENAI_*` settings) behind the same `Commentator` interface, plus an
-  agent that consumes low-level events and emits higher-level semantic
-  commentary correlated by `correlation_key`.
+* **Phase 3 — MELT/OTel:** ✅ done.
+* **Phase 4 — Agentic commentary:** ✅ done.
+* **Next:** thread raw frames into `AzureVLMCommentator` for true VLM (image)
+  prompts; add an Anthropic `LLMClient` implementation; scheduled trace-level
+  summarisation.

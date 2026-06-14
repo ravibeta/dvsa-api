@@ -9,4 +9,5 @@ app_name = "observability"
 urlpatterns = [
     path("events/", views.EventIngestListView.as_view(), name="event_list"),
     path("events/aggregate/", views.EventAggregateView.as_view(), name="event_aggregate"),
+    path("agents/summarize/", views.AgentSummarizeView.as_view(), name="agent_summarize"),
 ]

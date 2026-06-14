@@ -263,8 +263,12 @@ COMMENTARY_ENABLED = os.environ.get("COMMENTARY_ENABLED", "False") == "True"
 # Sink for routine-generated commentary: "null" | "db" | "memory" | "otel".
 # Comma-separated values fan out to all (e.g. "db,otel").
 COMMENTARY_SINK = os.environ.get("COMMENTARY_SINK", "db")
-# Commentary generator: "template" (deterministic, no LLM). Azure VLM is Phase 4.
+# Commentary generator: "template" (deterministic, no LLM) | "vlm" (model-backed).
 COMMENTARY_COMMENTATOR = os.environ.get("COMMENTARY_COMMENTATOR", "template")
+# LLM backend for the "vlm" commentator and the semantic agent (Phase 4):
+# "echo" (deterministic, offline) | "azure" (Azure OpenAI via AZURE_OPENAI_*).
+COMMENTARY_LLM = os.environ.get("COMMENTARY_LLM", "echo")
+AZURE_OPENAI_API_VERSION = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-01")
 
 # MELT / OpenTelemetry export (Phase 3). Commentary -> Logs, derived metrics ->
 # Metrics, routine spans -> Traces, shipped over OTLP/HTTP+JSON to any collector.

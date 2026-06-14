@@ -46,3 +46,22 @@ class CommentaryEventIngestSerializer(serializers.Serializer):
     frame_index = serializers.IntegerField(required=False, allow_null=True)
     segment_start = serializers.FloatField(required=False, allow_null=True)
     segment_end = serializers.FloatField(required=False, allow_null=True)
+
+
+class AgentSummarizeSerializer(serializers.Serializer):
+    """Validate a request to roll low-level events up into a semantic summary.
+
+    At least one selector (``video_id`` or ``trace_id``) must be supplied.
+    """
+
+    video_id = serializers.IntegerField(required=False, allow_null=True)
+    trace_id = serializers.CharField(required=False, allow_blank=True)
+    analysis_id = serializers.IntegerField(required=False, allow_null=True)
+    scope = serializers.CharField(required=False, default="video")
+
+    def validate(self, attrs):
+        if attrs.get("video_id") is None and not attrs.get("trace_id"):
+            raise serializers.ValidationError(
+                "Provide at least one of 'video_id' or 'trace_id'."
+            )
+        return attrs

@@ -13,9 +13,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .aggregation import aggregate_events
-from .emit import ingest_event
+from .emit import ingest_event, run_semantic_agent
 from .models import CommentaryEventRecord
 from .serializers import (
+    AgentSummarizeSerializer,
     CommentaryEventIngestSerializer,
     CommentaryEventRecordSerializer,
 )
@@ -91,3 +92,27 @@ class EventAggregateView(APIView):
         except ValueError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(result)
+
+
+class AgentSummarizeView(APIView):
+    """Roll low-level commentary events up into a higher-level semantic event.
+
+    ``POST`` body: ``{"video_id": <int>}`` and/or ``{"trace_id": <hex>}`` plus an
+    optional ``scope``. Runs the semantic aggregation agent over the selected
+    stored events, persists the summary, and returns it.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = AgentSummarizeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        result = run_semantic_agent(
+            video_id=data.get("video_id"),
+            trace_id=data.get("trace_id") or None,
+            analysis_id=data.get("analysis_id"),
+            scope=data.get("scope", "video"),
+        )
+        code = status.HTTP_201_CREATED if result["events"] else status.HTTP_200_OK
+        return Response(result, status=code)
