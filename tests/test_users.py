@@ -8,7 +8,7 @@ from apps.users.models import User
 class UserRegistrationTest(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.register_url = '/api/v1/auth/register/'
+        self.register_url = '/api/v1/users/register/'
     
     def test_user_registration(self):
         data = {
@@ -31,7 +31,7 @@ class UserProfileTest(TestCase):
             first_name='Test',
             last_name='User',
         )
-        self.profile_url = '/api/v1/auth/profile/'
+        self.profile_url = '/api/v1/users/profile/'
     
     def test_get_profile_authenticated(self):
         self.client.force_authenticate(user=self.user)

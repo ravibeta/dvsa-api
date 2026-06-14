@@ -2,8 +2,8 @@
 Django==5.2.4
 djangorestframework==3.16.0
 django-filter==24.1
-drf-spectacular==0.28.1
-djangorestframework-simplejwt==5.3.2
+drf-spectacular==0.28.0
+djangorestframework-simplejwt==5.3.1
 django-cors-headers==4.7.0
 python-dotenv==1.0.0
 python-decouple==3.8
