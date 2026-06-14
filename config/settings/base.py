@@ -260,7 +260,15 @@ GPS_PRECISION_METERS = int(os.environ.get("GPS_PRECISION_METERS", 5))
 # query-time-aggregatable commentary events. Disabled by default so existing
 # vision runs are unaffected until explicitly switched on.
 COMMENTARY_ENABLED = os.environ.get("COMMENTARY_ENABLED", "False") == "True"
-# Sink for routine-generated commentary: "null" | "db" | "memory".
+# Sink for routine-generated commentary: "null" | "db" | "memory" | "otel".
+# Comma-separated values fan out to all (e.g. "db,otel").
 COMMENTARY_SINK = os.environ.get("COMMENTARY_SINK", "db")
 # Commentary generator: "template" (deterministic, no LLM). Azure VLM is Phase 4.
 COMMENTARY_COMMENTATOR = os.environ.get("COMMENTARY_COMMENTATOR", "template")
+
+# MELT / OpenTelemetry export (Phase 3). Commentary -> Logs, derived metrics ->
+# Metrics, routine spans -> Traces, shipped over OTLP/HTTP+JSON to any collector.
+# Base endpoint (no signal suffix), e.g. "http://localhost:4318".
+OTEL_EXPORTER_OTLP_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+OTEL_SERVICE_NAME = os.environ.get("OTEL_SERVICE_NAME", "dvsa-api")
+COMMENTARY_OTEL_SIGNALS = os.environ.get("COMMENTARY_OTEL_SIGNALS", "logs,metrics,traces")
