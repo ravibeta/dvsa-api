@@ -40,6 +40,7 @@ LOCAL_APPS = [
     "apps.videos.apps.VideosConfig",
     "apps.analytics.apps.AnalyticsConfig",
     "apps.storage.apps.StorageConfig",
+    "apps.observability.apps.ObservabilityConfig",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -253,3 +254,13 @@ ALLOWED_VIDEO_FORMATS = os.environ.get("ALLOWED_VIDEO_FORMATS", "mp4,avi,mov,mkv
 # Geospatial Configuration
 GEOSPATIAL_ENABLED = os.environ.get("GEOSPATIAL_ENABLED", "True") == "True"
 GPS_PRECISION_METERS = int(os.environ.get("GPS_PRECISION_METERS", 5))
+
+# Commentary-driven Observability Layer
+# Parallel telemetry layer that turns vision-routine output into wide,
+# query-time-aggregatable commentary events. Disabled by default so existing
+# vision runs are unaffected until explicitly switched on.
+COMMENTARY_ENABLED = os.environ.get("COMMENTARY_ENABLED", "False") == "True"
+# Sink for routine-generated commentary: "null" | "db" | "memory".
+COMMENTARY_SINK = os.environ.get("COMMENTARY_SINK", "db")
+# Commentary generator: "template" (deterministic, no LLM). Azure VLM is Phase 4.
+COMMENTARY_COMMENTATOR = os.environ.get("COMMENTARY_COMMENTATOR", "template")
