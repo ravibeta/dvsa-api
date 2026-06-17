@@ -32,9 +32,34 @@ from .session import (
     teardown_session_azure_environment,
 )
 
+
+def get_vision_client(config=None):
+    """Convenience factory for the Vision data-plane client."""
+    from .vision import VisionClient
+
+    return VisionClient(config or AzureEnvironmentConfig.from_settings())
+
+
+def get_video_indexer_client(config=None):
+    """Convenience factory for the Video Indexer client."""
+    from .video_indexer import VideoIndexerClient
+
+    return VideoIndexerClient(config or AzureEnvironmentConfig.from_settings())
+
+
+def get_foundry_agents(config=None):
+    """Convenience factory for the Foundry agents runtime."""
+    from .agents import FoundryAgents
+
+    return FoundryAgents(config or AzureEnvironmentConfig.from_settings())
+
+
 __all__ = [
     "AzureEnvironmentConfig",
     "SessionAzureEnvironment",
     "create_session_azure_environment",
     "teardown_session_azure_environment",
+    "get_vision_client",
+    "get_video_indexer_client",
+    "get_foundry_agents",
 ]

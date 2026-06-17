@@ -47,6 +47,16 @@ def field_spec(dimensions: int = 1536) -> List[Dict[str, Any]]:
         {"name": "path", "type": "Edm.String", "filterable": True},
         {"name": "created", "type": "Edm.DateTimeOffset", "filterable": True,
          "sortable": True},
+        # --- ported-from-ezvision fidelity fields ------------------------
+        # account_id mirrors the source index007 partition key; the agentic
+        # retrieval filter is `account_id eq '<id>'`.
+        {"name": "account_id", "type": "Edm.String", "filterable": True,
+         "facetable": True},
+        {"name": "description", "type": "Edm.String", "searchable": True},
+        {"name": "objects", "type": "Edm.String", "searchable": True,
+         "filterable": True},
+        {"name": "boundingbox", "type": "Edm.String", "filterable": True},
+        {"name": "geotags", "type": "Edm.String", "filterable": True},
     ]
 
 
@@ -110,6 +120,15 @@ def build_search_index(name: str, dimensions: int = 1536):
                     filterable=True),
         SimpleField(name="created", type=SearchFieldDataType.DateTimeOffset,
                     filterable=True, sortable=True),
+        SimpleField(name="account_id", type=SearchFieldDataType.String,
+                    filterable=True, facetable=True),
+        SearchableField(name="description", type=SearchFieldDataType.String),
+        SearchableField(name="objects", type=SearchFieldDataType.String,
+                        filterable=True),
+        SimpleField(name="boundingbox", type=SearchFieldDataType.String,
+                    filterable=True),
+        SimpleField(name="geotags", type=SearchFieldDataType.String,
+                    filterable=True),
     ]
 
     vector_search = VectorSearch(

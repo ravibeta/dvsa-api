@@ -61,6 +61,9 @@ class SessionAzureEnvironment:
 
     _blob_service: Any = field(default=None, repr=False, compare=False)
     _search_client: Any = field(default=None, repr=False, compare=False)
+    _vision: Any = field(default=None, repr=False, compare=False)
+    _video_indexer: Any = field(default=None, repr=False, compare=False)
+    _agents: Any = field(default=None, repr=False, compare=False)
 
     # ----- data-plane clients (lazy) -------------------------------------
     def get_blob_service_client(self):
@@ -94,6 +97,39 @@ class SessionAzureEnvironment:
                 credential=AzureKeyCredential(c.search_admin_key),
             )
         return self._search_client
+
+    def _search_client_or_none(self):
+        """Real ``SearchClient`` when online, else ``None`` (dry-run upload)."""
+        if self.mode == "dryrun" or not self.config.search_data_plane_ready():
+            return None
+        return self.get_search_client()
+
+    @property
+    def vision(self):
+        """Cached :class:`~core.azure.vision.VisionClient`."""
+        if self._vision is None:
+            from .vision import VisionClient  # noqa: PLC0415
+
+            self._vision = VisionClient(self.config)
+        return self._vision
+
+    @property
+    def video_indexer(self):
+        """Cached :class:`~core.azure.video_indexer.VideoIndexerClient`."""
+        if self._video_indexer is None:
+            from .video_indexer import VideoIndexerClient  # noqa: PLC0415
+
+            self._video_indexer = VideoIndexerClient(self.config)
+        return self._video_indexer
+
+    @property
+    def agents(self):
+        """Cached :class:`~core.azure.agents.FoundryAgents` runtime."""
+        if self._agents is None:
+            from .agents import FoundryAgents  # noqa: PLC0415
+
+            self._agents = FoundryAgents(self.config)
+        return self._agents
 
     # ----- model-backed helpers ------------------------------------------
     def embed(self, text: str) -> List[float]:
@@ -178,6 +214,99 @@ class SessionAzureEnvironment:
             labels=ann["labels"], tags=ann["tags"], path=blob_path,
         )
         return {"frame_id": frame_id, "path": blob_path, **ann, **result}
+
+    # ----- ported runtime pipeline (Vision / Indexer / Agents) -----------
+    def vectorize_image(self, image_url: str) -> List[float]:
+        """Vectorize a frame via Azure AI Vision (offline-safe)."""
+        return self.vision.vectorize_image(image_url)
+
+    def analyze_image(self, image_url: str) -> Dict[str, Any]:
+        """Caption/tags/objects for a frame via Azure AI Vision (offline-safe)."""
+        return self.vision.analyze_image(image_url)
+
+    def upload_frame_document(self, *, account_id: str, frame_number: int,
+                              vector: List[float], description: str,
+                              source_sas_url: str) -> Dict[str, Any]:
+        """Form and upload an index document for one vectorized frame."""
+        from .document import form_and_upload_document  # noqa: PLC0415
+
+        return form_and_upload_document(
+            self.config, self._search_client_or_none(), account_id, frame_number,
+            vector, description, source_sas_url, user=self.user_id or "",
+            session=self.session_id,
+        )
+
+    def vectorize_and_index_frame(self, *, account_id: str, frame_number: int,
+                                  image_url: str) -> Dict[str, Any]:
+        """Vision-vectorize + analyze a single frame URL and index it."""
+        vector = self.vectorize_image(image_url)
+        description = self.vision.analyze_image_description(image_url)
+        return self.upload_frame_document(
+            account_id=account_id, frame_number=frame_number, vector=vector,
+            description=description, source_sas_url=image_url,
+        )
+
+    def ingest_video(self, video_sas_url: str, account_id: str,
+                     video_id: Optional[str] = None) -> Dict[str, Any]:
+        """Full indexing workflow (ported ``indexing_workflow``).
+
+        Optionally runs Video Indexer, ensures frames are extracted/uploaded,
+        then vision-vectorizes + indexes each frame. Degrades gracefully when
+        Video Indexer or storage credentials are absent.
+        """
+        from . import blob as blob_mod  # noqa: PLC0415
+
+        ops: List[Dict[str, Any]] = []
+        # 1) Optional Video Indexer highlight render.
+        if self.video_indexer.configured:
+            try:
+                indexer_url = self.video_indexer.index_and_download_video(
+                    account_id=account_id, video_url=video_sas_url
+                )
+                if indexer_url:
+                    dest = blob_mod.get_destination_sas_url(self.config, video_sas_url)
+                    blob_mod.copy_blob(indexer_url, dest)
+                    video_sas_url = dest
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("video indexer step skipped: %s", exc)
+
+        # 2) Ensure frames exist.
+        frames = 0
+        try:
+            frames = blob_mod.get_uploaded_frames(self.config, video_sas_url,
+                                                  account_id=account_id, video_id=video_id)
+            if frames == 0:
+                frames = blob_mod.extract_and_upload_frames(self.config, video_sas_url, video_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("frame extraction skipped (no storage creds?): %s", exc)
+
+        # 3) Vectorize + index each frame.
+        indexed = 0
+        for frame_number in range(frames):
+            image_url = blob_mod.get_image_blob_url(video_sas_url, frame_number, video_id=video_id)
+            try:
+                self.vectorize_and_index_frame(account_id=account_id,
+                                              frame_number=frame_number, image_url=image_url)
+                indexed += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("frame %s index failed: %s", frame_number, exc)
+        ops.append({"frames": frames, "indexed": indexed})
+        return {"video_sas_url": video_sas_url, "frames": frames, "indexed": indexed}
+
+    # ----- agentic Q&A delegations ---------------------------------------
+    def ask(self, query_text: str, account_id: str) -> str:
+        """Answer a question over the indexed frames (chat-agent synthesis)."""
+        return self.agents.synthesize_from_chat_agent(query_text, account_id)
+
+    def knowledge_base_search(self, query_text: str, account_id: str):
+        return self.agents.knowledge_base_search(query_text, account_id)
+
+    def run_function_tools(self, query_text: str, account_id: str):
+        return self.agents.run_function_tools(query_text, account_id)
+
+    def object_in_scene_search(self, query_text: str, account_id: str,
+                               video_id: Optional[str] = None):
+        return self.agents.object_in_scene_search(query_text, account_id, video_id)
 
     def to_dict(self) -> Dict[str, Any]:
         """JSON-serializable summary (safe for API responses — no secrets)."""
