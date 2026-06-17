@@ -173,27 +173,74 @@ CORS_ALLOWED_ORIGINS = os.environ.get(
 
 CORS_ALLOW_CREDENTIALS = True
 
-# Azure Configuration
+# =========================================================================
+# Azure configuration contract
+# -------------------------------------------------------------------------
+# Single source of truth for the session-scoped Azure environment provisioned
+# by ``core.azure`` (see core/azure/README.md). Everything is env-driven so the
+# same code runs locally (dry-run), in CI, and against a real subscription.
+# =========================================================================
+
+# Control-plane (ARM) credentials & placement — needed only to *provision*
+# global resources. When absent, core.azure falls back to dry-run mode.
+AZURE_SUBSCRIPTION_ID = os.environ.get("AZURE_SUBSCRIPTION_ID")
+AZURE_RESOURCE_GROUP = os.environ.get("AZURE_RESOURCE_GROUP", "rg-dvsa")
+AZURE_LOCATION = os.environ.get("AZURE_LOCATION", "eastus")
+# Provisioning backend: "auto" (real if creds present else dry-run) | "sdk" |
+# "terraform" | "dryrun".
+AZURE_PROVISIONER = os.environ.get("AZURE_PROVISIONER", "auto")
+
+# Azure Blob Storage (data lake for aerial frames + derived artifacts)
 AZURE_ACCOUNT_NAME = os.environ.get("AZURE_ACCOUNT_NAME")
 AZURE_ACCOUNT_KEY = os.environ.get("AZURE_ACCOUNT_KEY")
 AZURE_CONTAINER_NAME = os.environ.get("AZURE_CONTAINER_NAME", "videos")
+# Dedicated drone-video account required by the session environment.
+AZURE_STORAGE_ACCOUNT = os.environ.get("AZURE_STORAGE_ACCOUNT", "sadronevideo")
+AZURE_STORAGE_CONNECTION_STRING = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+AZURE_STORAGE_INPUT_CONTAINER = os.environ.get("AZURE_STORAGE_INPUT_CONTAINER", "input")
+AZURE_STORAGE_OUTPUT_CONTAINER = os.environ.get(
+    "AZURE_STORAGE_OUTPUT_CONTAINER", "output"
+)
 
 # Azure AI Vision
 AZURE_AI_VISION_API_KEY = os.environ.get("AZURE_AI_VISION_API_KEY")
 AZURE_AI_VISION_REGION = os.environ.get("AZURE_AI_VISION_REGION", "eastus")
 AZURE_AI_VISION_ENDPOINT = os.environ.get("AZURE_AI_VISION_ENDPOINT")
 
-# Azure Search
+# Azure AI Search
 AZURE_SEARCH_SERVICE_NAME = os.environ.get("AZURE_SEARCH_SERVICE_NAME")
+AZURE_SEARCH_ENDPOINT = os.environ.get(
+    "AZURE_SEARCH_ENDPOINT",
+    (f"https://{AZURE_SEARCH_SERVICE_NAME}.search.windows.net"
+     if AZURE_SEARCH_SERVICE_NAME else None),
+)
 AZURE_SEARCH_ADMIN_KEY = os.environ.get("AZURE_SEARCH_ADMIN_KEY")
 AZURE_SEARCH_INDEX_NAME = os.environ.get("AZURE_SEARCH_INDEX_NAME", "dvsa-index")
+AZURE_SEARCH_SKU = os.environ.get("AZURE_SEARCH_SKU", "standard")
+# Embedding width stored per aerial frame (text-embedding-ada-002 == 1536).
+AZURE_SEARCH_VECTOR_DIMENSIONS = int(
+    os.environ.get("AZURE_SEARCH_VECTOR_DIMENSIONS", 1536)
+)
 
-# Azure OpenAI
+# Azure OpenAI / AI Foundry (models, agents, deployments)
 AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
 AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY")
-AZURE_OPENAI_GPT_DEPLOYMENT = os.environ.get("AZURE_OPENAI_GPT_DEPLOYMENT")
+AZURE_OPENAI_ACCOUNT = os.environ.get("AZURE_OPENAI_ACCOUNT", "dvsa-foundry")
+AZURE_OPENAI_GPT_DEPLOYMENT = os.environ.get("AZURE_OPENAI_GPT_DEPLOYMENT", "gpt-4o-mini")
+AZURE_OPENAI_GPT_MODEL = os.environ.get("AZURE_OPENAI_GPT_MODEL", "gpt-4o-mini")
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.environ.get(
-    "AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
+    "AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-ada-002"
+)
+AZURE_OPENAI_EMBEDDING_MODEL = os.environ.get(
+    "AZURE_OPENAI_EMBEDDING_MODEL", "text-embedding-ada-002"
+)
+
+# Per-session isolation strategy: "index" (one search index per session) |
+# "filter" (shared index, rows tagged + filtered by session/user).
+AZURE_SESSION_ISOLATION = os.environ.get("AZURE_SESSION_ISOLATION", "index")
+# Path to the Terraform module used by the "terraform" provisioner.
+AZURE_TERRAFORM_DIR = os.environ.get(
+    "AZURE_TERRAFORM_DIR", str(BASE_DIR / "solution-accelerator")
 )
 
 # Celery Configuration
