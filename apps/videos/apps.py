@@ -8,3 +8,7 @@ class VideosConfig(AppConfig):
     name = "apps.videos"
     label = "videos"
     verbose_name = "Videos"
+
+    def ready(self):
+        # Register post_save -> Azure ingestion pipeline.
+        from . import signals  # noqa: F401

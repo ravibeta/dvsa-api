@@ -243,6 +243,56 @@ AZURE_TERRAFORM_DIR = os.environ.get(
     "AZURE_TERRAFORM_DIR", str(BASE_DIR / "solution-accelerator")
 )
 
+# --- Runtime data-plane (ported from ezvision my_droneworld_api) ----------
+# API versions for the Vision / Search / embedding model REST calls.
+AZURE_VISION_API_VERSION = os.environ.get("AZURE_VISION_API_VERSION", "2024-02-01")
+AZURE_SEARCH_API_VERSION = os.environ.get(
+    "AZURE_SEARCH_API_VERSION", "2025-08-01-preview"
+)
+AZURE_VISION_MODEL_VERSION = os.environ.get("AZURE_VISION_MODEL_VERSION", "2023-04-15")
+
+# Azure AI Foundry project (agents/threads live here).
+AZURE_PROJECT_ENDPOINT = os.environ.get("AZURE_PROJECT_ENDPOINT")
+AZURE_PROJECT_API_KEY = os.environ.get("AZURE_PROJECT_API_KEY")
+AZURE_AGENT_MODEL = os.environ.get("AZURE_AGENT_MODEL", "gpt-4o-mini")
+AZURE_EMBEDDING_MODEL = os.environ.get("AZURE_EMBEDDING_MODEL", "text-embedding-ada-002")
+# AI Search resource coordinates used by the agentic retrieval pipeline.
+AZURE_SEARCH_CONNECTION_ID = os.environ.get("AZURE_SEARCH_CONNECTION_ID")
+AZURE_SEARCH_RESOURCE_ID = os.environ.get("AZURE_SEARCH_RESOURCE_ID")
+AZURE_SEARCH_SUBSCRIPTION = os.environ.get("AZURE_SEARCH_SUBSCRIPTION")
+AZURE_SEARCH_RESOURCE_GROUP = os.environ.get("AZURE_SEARCH_RESOURCE_GROUP")
+AZURE_SEARCH_LOCATION = os.environ.get("AZURE_SEARCH_LOCATION", "eastus")
+# Foundry agent role names.
+AZURE_FN_AGENT_NAME = os.environ.get("AZURE_FN_AGENT_NAME", "fn-agent-in-a-team")
+AZURE_CHAT_AGENT_NAME = os.environ.get("AZURE_CHAT_AGENT_NAME", "chat-agent-in-a-team")
+AZURE_SEARCH_AGENT_NAME = os.environ.get(
+    "AZURE_SEARCH_AGENT_NAME", "search-agent-in-a-team"
+)
+AZURE_TOOL_AGENT_NAME = os.environ.get("AZURE_TOOL_AGENT_NAME", "tool-agent-in-a-team")
+
+# Azure Video Indexer.
+AZURE_VIDEO_INDEXER_URL = os.environ.get(
+    "AZURE_VIDEO_INDEXER_URL", "https://api.videoindexer.ai"
+)
+AZURE_VIDEO_INDEXER_REGION = os.environ.get("AZURE_VIDEO_INDEXER_REGION", "eastus")
+AZURE_VIDEO_INDEXER_ACCOUNT = os.environ.get("AZURE_VIDEO_INDEXER_ACCOUNT")
+AZURE_VIDEO_INDEXER_API_KEY = os.environ.get("AZURE_VIDEO_INDEXER_API_KEY")
+AZURE_VIDEO_INDEXER_ACCESS_TOKEN = os.environ.get("AZURE_VIDEO_INDEXER_ACCESS_TOKEN", "")
+
+# Perplexity (image geolocation + multimodal retrieval fallback).
+PERPLEXITY_CHAT_API_KEY = os.environ.get("PERPLEXITY_CHAT_API_KEY")
+PERPLEXITY_CHAT_API_URL = os.environ.get(
+    "PERPLEXITY_CHAT_API_URL", "https://api.perplexity.ai/chat/completions"
+)
+PERPLEXITY_GEO_API_KEY = os.environ.get("PERPLEXITY_GEO_API_KEY")
+PERPLEXITY_GEO_API_URL = os.environ.get(
+    "PERPLEXITY_GEO_API_URL", "https://api.perplexity.ai/v1/image/geolocation"
+)
+
+# Sample object/scene image URIs used by object-in-scene search.
+SAMPLE_OBJECT_URI = os.environ.get("SAMPLE_OBJECT_URI", "")
+SAMPLE_SCENE_URI = os.environ.get("SAMPLE_SCENE_URI", "")
+
 # Celery Configuration
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")

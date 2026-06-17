@@ -37,6 +37,12 @@ azure-mgmt-storage==21.2.1
 azure-mgmt-search==9.1.0
 azure-mgmt-cognitiveservices==13.5.0
 
+# Azure AI Foundry agents/projects runtime (lazy-imported by core.azure.agents)
+azure-ai-projects==1.0.0b11
+azure-ai-agents==1.0.0
+# Retry decorator used by the vision/indexer pipeline
+tenacity==9.0.0
+
 # Computer Vision & Image Processing
 opencv-python==4.11.0.86
 scikit-image==0.24.0
