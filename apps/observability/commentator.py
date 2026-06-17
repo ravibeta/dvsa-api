@@ -40,6 +40,7 @@ class CommentaryContext:
         frame_index: Optional[int] = None,
         parent_span_id: Optional[str] = None,
         fps: Optional[float] = None,
+        frame_step: Optional[int] = None,
     ) -> None:
         self.trace_id = trace_id
         self.video_id = video_id
@@ -47,6 +48,9 @@ class CommentaryContext:
         self.frame_index = frame_index
         self.parent_span_id = parent_span_id
         self.fps = fps
+        # Number of source frames a sampled frame represents (the sampling
+        # stride). Used to bound the temporal segment a commentary covers.
+        self.frame_step = frame_step
 
     def correlation_key(self) -> str:
         """Stable key linking all events about the same video frame.
@@ -63,11 +67,26 @@ class CommentaryContext:
         return "|".join(parts) or self.trace_id
 
     def segment_seconds(self) -> Optional[float]:
-        """Frame index → seconds, when fps is known (else ``None``)."""
+        """Frame index → segment start in seconds, when fps is known (else ``None``)."""
 
         if self.frame_index is None or not self.fps:
             return None
         return self.frame_index / float(self.fps)
+
+    def segment_end_seconds(self) -> Optional[float]:
+        """End of the temporal segment a sampled frame covers, in seconds.
+
+        A frame sampled at absolute index ``i`` with stride ``frame_step``
+        represents ``[i/fps, (i + step)/fps)``. When the stride is unknown the
+        segment is treated as a single frame (``step = 1``). Returns ``None``
+        when start can't be computed (no fps / no frame index).
+        """
+
+        start = self.segment_seconds()
+        if start is None:
+            return None
+        span = self.frame_step if self.frame_step and self.frame_step > 0 else 1
+        return (self.frame_index + span) / float(self.fps)
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +207,7 @@ class TemplateCommentator(Commentator):
             analysis_id=ctx.analysis_id,
             frame_index=ctx.frame_index,
             segment_start=ctx.segment_seconds(),
+            segment_end=ctx.segment_end_seconds(),
         )
         return [event]
 
@@ -227,6 +247,7 @@ def events_from_results(
     video_id: Optional[int] = None,
     analysis_id: Optional[int] = None,
     fps: Optional[float] = None,
+    frame_step: Optional[int] = None,
     commentator: Optional[Commentator] = None,
 ) -> List[CommentaryEvent]:
     """Walk the aggregated routine output and produce commentary events.
@@ -254,6 +275,7 @@ def events_from_results(
                 analysis_id=analysis_id,
                 frame_index=frame_index,
                 fps=fps,
+                frame_step=frame_step,
             )
             events.extend(commentator.comment_on_result(routine, result, ctx))
 
@@ -270,7 +292,7 @@ def events_from_results(
             frame_index = fr.get("frame")
             ctx = CommentaryContext(
                 trace_id, video_id=video_id, analysis_id=analysis_id,
-                frame_index=frame_index, fps=fps,
+                frame_index=frame_index, fps=fps, frame_step=frame_step,
             )
             events.append(
                 CommentaryEvent(
@@ -287,6 +309,7 @@ def events_from_results(
                     analysis_id=analysis_id,
                     frame_index=frame_index,
                     segment_start=ctx.segment_seconds(),
+                    segment_end=ctx.segment_end_seconds(),
                 )
             )
 
