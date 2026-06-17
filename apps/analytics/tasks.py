@@ -126,12 +126,32 @@ def run_video_analysis(
         if getattr(settings, "COMMENTARY_ENABLED", False):
             try:
                 from apps.observability.emit import emit_analysis_commentary
+                from apps.observability.schema import new_trace_id
 
+                # Resolve fps so commentary events carry real temporal segments
+                # (segment_start/segment_end). Best-effort: a missing/zero fps
+                # just leaves segments unset rather than failing the run.
+                fps = None
+                try:
+                    from .routines import video_metadata
+
+                    fps = video_metadata(video_path).get("fps") or None
+                except Exception:  # noqa: BLE001 - fps is optional
+                    logger.debug("Could not read fps for analysis %s", analysis_id)
+
+                run_trace_id = new_trace_id()
                 summary = emit_analysis_commentary(
                     results,
                     video_id=analysis.video_id,
                     analysis_id=analysis.id,
+                    fps=fps,
+                    frame_step=frame_step,
+                    trace_id=run_trace_id,
                 )
+                # Persist the trace id so the run's commentary is correlatable
+                # from the Analysis row (e.g. run_semantic_agent(trace_id=...)).
+                analysis.trace_id = summary["trace_id"]
+                analysis.save(update_fields=["trace_id", "updated_at"])
                 logger.info(
                     "Commentary emitted for analysis %s: %s events (trace %s)",
                     analysis_id, summary["emitted"], summary["trace_id"],

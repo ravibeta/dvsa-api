@@ -30,6 +30,7 @@ def emit_analysis_commentary(
     video_id: Optional[int],
     analysis_id: Optional[int],
     fps: Optional[float] = None,
+    frame_step: Optional[int] = None,
     trace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Generate and persist commentary for one analysis run.
@@ -51,6 +52,7 @@ def emit_analysis_commentary(
         video_id=video_id,
         analysis_id=analysis_id,
         fps=fps,
+        frame_step=frame_step,
         commentator=commentator,
     )
 
