@@ -151,8 +151,8 @@ def test_infer_scales_bbox_to_original_frame(tmp_path):
     frame = np.zeros((800, 1200, 3), dtype=np.uint8)
     dets = detector.infer(frame)
 
-    # x: 0.1*1200=120 .. 0.5*1200=600 ; y: 0.1*800=80 .. 0.5*800=400
-    assert dets[0]["bbox"] == [120, 80, 600, 400]
+    # corners x:[120..600] y:[80..400] -> (x, y, w, h) = (120, 80, 480, 320)
+    assert dets[0]["bbox"] == [120, 80, 480, 320]
 
 
 def test_infer_handles_single_combined_output(tmp_path):
@@ -165,7 +165,7 @@ def test_infer_handles_single_combined_output(tmp_path):
 
     dets = detector.infer(np.zeros((800, 1200, 3), dtype=np.uint8))
     assert dets[0]["label"] == "vehicle"
-    assert dets[0]["bbox"] == [120, 80, 600, 400]
+    assert dets[0]["bbox"] == [120, 80, 480, 320]
 
 
 def test_score_threshold_filters_low_confidence(tmp_path):

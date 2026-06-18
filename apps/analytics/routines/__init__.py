@@ -26,6 +26,7 @@ from .base import (
 
 # Import routine modules for their registration side effects.
 from . import clustering  # noqa: F401
+from . import custom_onnx  # noqa: F401
 from . import detection  # noqa: F401
 from . import geometry  # noqa: F401
 from . import histograms  # noqa: F401

@@ -4,10 +4,14 @@ Implements :class:`CustomONNXDetector`, a small, dependency-injectable wrapper
 around an ``onnxruntime.InferenceSession`` that turns a BGR frame (as returned
 by OpenCV) into a list of detection dicts::
 
-    {"label": "vehicle", "score": 0.92, "bbox": [x1, y1, x2, y2]}
+    {"label": "vehicle", "score": 0.92, "bbox": [x, y, w, h]}
 
-``bbox`` coordinates are returned in **original frame pixel space** (top-left
-origin), regardless of the model's input size or whether tiling is used.
+``bbox`` is ``(x, y, w, h)`` — top-left corner plus width/height — in
+**original frame pixel space**, matching ``apps.analytics.routines.base.Detection``
+used elsewhere in dvsa-api. This holds regardless of the model's input size or
+whether tiling is used. Models almost always emit corner boxes
+(``[x1, y1, x2, y2]``); the adapter converts on the way out (see
+:func:`xyxy_to_xywh`).
 
 The design deliberately allows the runtime session to be *injected* (either as
 a ready ``session`` or via a ``session_factory``) so the full pipeline can be
@@ -285,7 +289,7 @@ class CustomONNXDetector:
         )
 
     def _scale_box(self, box: Sequence[float], meta: TileMeta) -> List[int]:
-        """Map a raw model box onto original-frame pixel coordinates."""
+        """Map a raw model corner-box onto original-frame ``(x, y, w, h)`` pixels."""
 
         bx1, by1, bx2, by2 = (float(box[0]), float(box[1]), float(box[2]), float(box[3]))
         in_w, in_h = self.config.input_size
@@ -301,11 +305,11 @@ class CustomONNXDetector:
         y1 = meta.y_off + by1 * sy
         x2 = meta.x_off + bx2 * sx
         y2 = meta.y_off + by2 * sy
-        # Order corners and clamp to non-negative integers.
-        x1, x2 = sorted((x1, x2))
-        y1, y2 = sorted((y1, y2))
-        return [int(round(max(0.0, x1))), int(round(max(0.0, y1))),
-                int(round(max(0.0, x2))), int(round(max(0.0, y2)))]
+        # Order corners, clamp to the frame origin, then convert to (x, y, w, h)
+        # to match apps.analytics.routines.base.Detection.
+        x1, x2 = sorted((max(0.0, x1), max(0.0, x2)))
+        y1, y2 = sorted((max(0.0, y1), max(0.0, y2)))
+        return xyxy_to_xywh((x1, y1, x2, y2))
 
     def postprocess(
         self,
@@ -396,6 +400,21 @@ class CustomONNXDetector:
 # ---------------------------------------------------------------------------
 
 
+def xyxy_to_xywh(box: Sequence[float]) -> List[int]:
+    """Convert a corner box ``[x1, y1, x2, y2]`` to ``[x, y, w, h]`` (ints)."""
+
+    x1, y1, x2, y2 = (float(box[0]), float(box[1]), float(box[2]), float(box[3]))
+    return [int(round(x1)), int(round(y1)),
+            int(round(max(0.0, x2 - x1))), int(round(max(0.0, y2 - y1)))]
+
+
+def xywh_to_xyxy(box: Sequence[float]) -> List[int]:
+    """Convert an ``[x, y, w, h]`` box to a corner box ``[x1, y1, x2, y2]`` (ints)."""
+
+    x, y, w, h = (float(box[0]), float(box[1]), float(box[2]), float(box[3]))
+    return [int(round(x)), int(round(y)), int(round(x + w)), int(round(y + h))]
+
+
 def _first_present(d: Dict, keys: Sequence[str]):
     for k in keys:
         if k in d:
@@ -404,19 +423,18 @@ def _first_present(d: Dict, keys: Sequence[str]):
 
 
 def _iou(a: Sequence[int], b: Sequence[int]) -> float:
-    """Intersection-over-union of two ``[x1, y1, x2, y2]`` boxes."""
+    """Intersection-over-union of two ``[x, y, w, h]`` boxes."""
 
-    ax1, ay1, ax2, ay2 = a
-    bx1, by1, bx2, by2 = b
-    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    ax2, ay2, bx2, by2 = ax + aw, ay + ah, bx + bw, by + bh
+    ix1, iy1 = max(ax, bx), max(ay, by)
     ix2, iy2 = min(ax2, bx2), min(ay2, by2)
     iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
     inter = iw * ih
     if inter == 0:
         return 0.0
-    area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
-    area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
-    union = area_a + area_b - inter
+    union = max(0, aw) * max(0, ah) + max(0, bw) * max(0, bh) - inter
     return inter / union if union > 0 else 0.0
 
 

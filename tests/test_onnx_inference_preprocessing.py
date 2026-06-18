@@ -13,7 +13,19 @@ import pytest
 cv2 = pytest.importorskip("cv2")
 
 from custom_model.model_loader import ModelConfig
-from custom_model.onnx_inference import CustomONNXDetector, TileMeta
+from custom_model.onnx_inference import (
+    CustomONNXDetector,
+    TileMeta,
+    xywh_to_xyxy,
+    xyxy_to_xywh,
+)
+
+
+def test_box_conversion_round_trip():
+    assert xyxy_to_xywh([120, 80, 600, 400]) == [120, 80, 480, 320]
+    assert xywh_to_xyxy([120, 80, 480, 320]) == [120, 80, 600, 400]
+    # round-trip is stable for integer corner boxes
+    assert xywh_to_xyxy(xyxy_to_xywh([10, 20, 33, 44])) == [10, 20, 33, 44]
 
 
 def _detector(tmp_path, **overrides):

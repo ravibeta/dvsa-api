@@ -36,8 +36,12 @@ The detector handles the three most common ONNX detection output layouts:
 3. A `dict` keyed by `boxes`/`scores`/`labels` (TF-style `detection_*` keys also work).
 
 Boxes may be **normalised** `[0, 1]` or expressed in **input-pixel** space; the
-adapter detects which and returns `bbox` in **original frame pixel coordinates**
-either way.
+adapter detects which and returns `bbox` as `(x, y, w, h)` in **original frame
+pixel coordinates** either way. This matches
+`apps.analytics.routines.base.Detection`, so detections drop straight into the
+analytics pipeline. (Models almost always emit corner boxes `[x1, y1, x2, y2]`;
+the adapter converts on the way out — `xyxy_to_xywh` / `xywh_to_xyxy` are
+exported from `onnx_inference` for callers that need the other form.)
 
 ## Quick start (local smoke test)
 
@@ -63,7 +67,8 @@ detector.load()
 
 frame = cv2.imread("sample_frame.jpg")        # BGR, as OpenCV returns
 detections = detector.infer(frame)
-# detections -> [{"label": "vehicle", "score": 0.92, "bbox": [x1, y1, x2, y2]}, ...]
+# detections -> [{"label": "vehicle", "score": 0.92, "bbox": [x, y, w, h]}, ...]
+# bbox is (x, y, w, h) in original-frame pixels — same as base.Detection.
 
 detector.close()
 ```
@@ -91,65 +96,71 @@ json.dump(label_map, open("label_map.json", "w"), indent=2)
 
 ## Integrate into `dvsa-api`
 
-dvsa-api already has a pluggable routine registry in
-`apps/analytics/routines/base.py`. The custom detector is a *model-based*
-detector rather than a classical routine, so the simplest integration is a thin
-process-wide singleton built from environment variables.
+The wiring is **already implemented** in
+`apps/analytics/routines/custom_onnx.py` and registered in the routine registry
+(`apps/analytics/routines/__init__.py`). Because the adapter returns
+`(x, y, w, h)` boxes, detections map cleanly onto `base.Detection`.
 
 ### 1. Configuration (env)
+
+Set these (see `.env.example`). When unset, the routine stays registered but is
+inert — existing analytics are unaffected.
 
 ```env
 CUSTOM_MODEL_ONNX_PATH=/secrets/custom_model.onnx
 CUSTOM_MODEL_LABELS_PATH=/secrets/label_map.json
+# Optional:
+# CUSTOM_MODEL_INPUT_SIZE=640x640
+# CUSTOM_MODEL_MEAN=0.485,0.456,0.406
+# CUSTOM_MODEL_STD=0.229,0.224,0.225
+# CUSTOM_MODEL_TILE_SIZE=1024x1024
+# CUSTOM_MODEL_TILE_OVERLAP=0.2
+# CUSTOM_MODEL_SCORE_THRESHOLD=0.25
 ```
 
-### 2. A small registry / factory
+### 2. Run it through the existing analytics pipeline
+
+The detector is exposed as the frame-level routine **`custom_onnx_detection`**,
+so it works with the existing `RunAnalysisView` / `run_video_analysis` Celery
+flow and the `RoutineListView` discovery endpoint — no new endpoint required:
+
+```jsonc
+// POST /api/analytics/videos/<video_id>/run
+{ "routines": ["custom_onnx_detection"], "frame_step": 30, "max_frames": 300 }
+```
+
+It returns the standard envelope, with `bbox` as `(x, y, w, h)`:
+
+```json
+{
+  "routine": "custom_onnx_detection",
+  "summary": {"count": 1, "labels": ["vehicle"]},
+  "detections": [{"bbox": [120, 80, 480, 320], "centroid": [360.0, 240.0],
+                  "area": 153600.0, "label": "vehicle", "score": 0.92}]
+}
+```
+
+Programmatic use is identical to any other routine:
 
 ```python
-# apps/analytics/custom_detector.py  (new file — adapt paths to your repo)
-import os
-from functools import lru_cache
-from typing import Optional
+from apps.analytics.routines import run_frame_routine
 
-from custom_model.model_loader import ModelConfig, create_detector
-from custom_model.onnx_inference import CustomONNXDetector
-
-
-@lru_cache(maxsize=1)
-def get_custom_detector() -> Optional[CustomONNXDetector]:
-    """Return a loaded detector, or None if not configured."""
-    onnx_path = os.getenv("CUSTOM_MODEL_ONNX_PATH")
-    labels_path = os.getenv("CUSTOM_MODEL_LABELS_PATH")
-    if not onnx_path or not labels_path:
-        return None
-
-    cfg = ModelConfig(
-        onnx_path=onnx_path,
-        labels_path=labels_path,
-        input_size=(640, 640),
-        mean=(0.485, 0.456, 0.406),
-        std=(0.229, 0.224, 0.225),
-    )
-    detector = create_detector(cfg)
-    detector.load()
-    return detector
+result = run_frame_routine("custom_onnx_detection", frame)  # frame: BGR ndarray
 ```
 
-> `# TODO` Wire `get_custom_detector()` into your existing detection dispatch so
-> a request can route to `"custom_onnx"`. If you prefer the routine registry,
-> register a `level="frame"` wrapper that calls `detector.infer(frame)` and maps
-> the returned dicts into `apps.analytics.routines.base.Detection` objects
-> (note: that `Detection.bbox` is `(x, y, w, h)` whereas this adapter returns
-> `[x1, y1, x2, y2]`).
+The detector is a process-wide singleton (`get_custom_detector()`, cached);
+call `reset_custom_detector()` after changing the environment.
 
-### 3. Example FastAPI endpoint
+### 3. Optional: a dedicated single-frame endpoint
+
+If you want a synchronous image endpoint in addition to the video pipeline:
 
 ```python
 from fastapi import APIRouter, File, HTTPException, UploadFile
 import numpy as np
 import cv2
 
-from apps.analytics.custom_detector import get_custom_detector
+from apps.analytics.routines.custom_onnx import get_custom_detector
 
 router = APIRouter()
 
@@ -165,10 +176,10 @@ async def detect_custom(file: UploadFile = File(...)):
     if frame is None:
         raise HTTPException(400, "Could not decode image")
 
-    return {"detections": detector.infer(frame)}
+    return {"detections": detector.infer(frame)}  # bbox = [x, y, w, h]
 ```
 
-A Django REST Framework equivalent is a `APIView.post` that reads
+A Django REST Framework equivalent is an `APIView.post` that reads
 `request.FILES["file"].read()` and calls the same `detector.infer(frame)`.
 
 ## Preprocessing & tiling
@@ -213,5 +224,5 @@ pytest tests/test_custom_model_integration.py tests/test_onnx_inference_preproce
 | `create_detector` | `(config, session_factory=None) -> CustomONNXDetector` |
 | `load_label_map` | `(path) -> Dict[int, str]` |
 | `CustomONNXDetector.load` | `() -> self` |
-| `CustomONNXDetector.infer` | `(frame: np.ndarray) -> List[{"label", "score", "bbox":[x1,y1,x2,y2]}]` |
+| `CustomONNXDetector.infer` | `(frame: np.ndarray) -> List[{"label", "score", "bbox":[x,y,w,h]}]` |
 | `CustomONNXDetector.close` | `() -> None` |
