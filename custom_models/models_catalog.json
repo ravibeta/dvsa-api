@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "description": "Curated drone/aerial object-detection models for dvsa-api. Weights are NOT bundled; download from source_url and place at artifact_filename, then point ModelSpec.path/labels_file at the local files (or set a base_dir when loading the catalog).",
+  "models": [
+    {
+      "id": "visdrone-yolov8x",
+      "name": "VisDrone YOLOv8x",
+      "format": "yolo",
+      "source_url": "https://huggingface.co/dronefreak/visdrone-yolov8x",
+      "artifact_filename": "visdrone-yolov8x.pt",
+      "labels_file": "labels/visdrone.json",
+      "input_size": [640, 640],
+      "tile_recommendation": [1280, 1280],
+      "task": "detection",
+      "altitude": "medium",
+      "capabilities": ["person", "vehicle", "bicycle", "car", "van", "truck", "bus", "motor"]
+    },
+    {
+      "id": "tph-yolov5",
+      "name": "TPH-YOLOv5 (transformer head)",
+      "format": "yolo",
+      "source_url": "https://github.com/cv516Buaa/tph-yolov5",
+      "artifact_filename": "tph-yolov5.pt",
+      "labels_file": "labels/visdrone.json",
+      "input_size": [1536, 1536],
+      "tile_recommendation": [1536, 1536],
+      "task": "detection",
+      "altitude": "high",
+      "capabilities": ["person", "vehicle", "bicycle", "car", "van", "truck", "bus", "motor"]
+    },
+    {
+      "id": "dota-faster-rcnn",
+      "name": "Faster R-CNN for DOTA (aerial)",
+      "format": "torch",
+      "source_url": "https://github.com/jessemelpolio/Faster_RCNN_for_DOTA",
+      "artifact_filename": "dota-faster-rcnn.torchscript",
+      "labels_file": "labels/dota.json",
+      "input_size": [1024, 1024],
+      "tile_recommendation": [1024, 1024],
+      "task": "detection",
+      "altitude": "high",
+      "capabilities": ["plane", "ship", "vehicle", "car", "harbor", "bridge", "storage-tank"]
+    },
+    {
+      "id": "visdrone-toolkit-yolov5",
+      "name": "VisDrone toolkit YOLOv5 (model zoo)",
+      "format": "yolo",
+      "source_url": "https://github.com/dronefreak/VisDrone-dataset-python-toolkit",
+      "artifact_filename": "visdrone-yolov5.onnx",
+      "labels_file": "labels/visdrone.json",
+      "input_size": [640, 640],
+      "tile_recommendation": [1024, 1024],
+      "task": "detection",
+      "altitude": "medium",
+      "capabilities": ["person", "vehicle", "bicycle", "car", "van", "truck", "bus"]
+    },
+    {
+      "id": "ultralytics-yolov8-coco",
+      "name": "Ultralytics YOLOv8 (COCO baseline)",
+      "format": "yolo",
+      "source_url": "https://github.com/ultralytics/ultralytics",
+      "artifact_filename": "yolov8x.pt",
+      "labels_file": null,
+      "input_size": [640, 640],
+      "tile_recommendation": null,
+      "task": "detection",
+      "altitude": "low",
+      "capabilities": ["person", "bicycle", "car", "motorcycle", "bus", "truck", "vehicle"]
+    }
+  ]
+}
