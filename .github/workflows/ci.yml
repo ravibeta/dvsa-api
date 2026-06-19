@@ -25,6 +25,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements/dev.txt
+          # Multi-format model layer (custom_models/). Tests mock the runtimes,
+          # so this only adds onnxruntime; torch/ultralytics stay opt-in.
+          pip install -r custom_models/requirements.txt
 
       # System check + migration-drift check run under a settings module with
       # migrations enabled (the testing module disables them on purpose).
