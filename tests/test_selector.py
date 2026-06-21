@@ -140,3 +140,31 @@ def test_default_catalog_loads_and_is_selectable():
     # A high-altitude, tiling-capable model should win for 4K aerial vehicle/person.
     assert spec.tile_recommendation is not None
     assert spec.format in {"yolo", "torch", "onnx"}
+
+
+def test_default_catalog_has_at_least_twelve_curated_models():
+    # curate_model_2.md acceptance criterion #3: >= 12 curated entries.
+    sel = ModelSelector.default()
+    assert len(sel.specs) >= 12
+
+
+def test_default_catalog_entries_are_well_formed():
+    sel = ModelSelector.default()
+    ids = [s.id for s in sel.specs]
+    assert len(ids) == len(set(ids)), "catalog ids must be unique"
+    for spec in sel.specs:
+        # Every entry must cite an authoritative http(s) source_url.
+        assert spec.source_url.startswith("http"), f"{spec.id} missing source_url"
+        # Every format must map to a registered adapter.
+        assert spec.format in {"yolo", "torch", "onnx"}, f"{spec.id} bad format"
+        assert spec.capabilities, f"{spec.id} has no capabilities"
+
+
+def test_default_catalog_covers_ship_and_building_specialists():
+    # The expanded catalog adds maritime + building-footprint coverage; the
+    # selector should pick a model that actually covers the requested class.
+    sel = ModelSelector.default()
+    ids = {s.id for s in sel.specs}
+    assert {"hrsc2016-ship", "spacenet-buildings"} <= ids
+    assert "ship" in sel.select(classes=["ship"]).capabilities
+    assert "building" in sel.select(classes=["building"]).capabilities

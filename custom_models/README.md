@@ -91,6 +91,20 @@ loading the catalog (`ModelSelector.from_file(path, base_dir="/weights")`).
 | `dota-faster-rcnn` | torch | github.com/jessemelpolio/Faster_RCNN_for_DOTA |
 | `visdrone-toolkit-yolov5` | yolo | github.com/dronefreak/VisDrone-dataset-python-toolkit |
 | `ultralytics-yolov8-coco` | yolo | github.com/ultralytics/ultralytics |
+| `ultralytics-yolov5-coco` | yolo | github.com/ultralytics/yolov5 |
+| `mmdetection-faster-rcnn` | onnx | github.com/open-mmlab/mmdetection |
+| `detectron2-faster-rcnn` | torch | github.com/facebookresearch/detectron2 |
+| `xview-detector` | onnx | xviewdataset.org |
+| `uavdt-yolo` | yolo | github.com/VisDrone/VisDrone-Dataset |
+| `dior-detector` | onnx | github.com/open-mmlab/mmdetection |
+| `hrsc2016-ship` | torch | sites.google.com/site/haoyunzhang1995/hrsc2016 |
+| `spacenet-buildings` | onnx | spacenet.ai |
+| `huggingface-aerial-detr` | onnx | huggingface.co/models |
+| `azure-customvision-aerial` | onnx | learn.microsoft.com/azure/ai-services/custom-vision-service |
+
+Weights are **not** bundled — download each from its `source_url` (preferring an
+ONNX export for runtime portability) and drop it at `artifact_filename`. See the
+per-format notes above for `.pt`→ONNX / TorchScript export steps.
 
 ## Azure Custom Vision (optional)
 
