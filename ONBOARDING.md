@@ -4,7 +4,7 @@
 
 ## Overview
 
-**DVSA (Drone Video Sensing Analytics)** is a production-ready, open-source platform that eliminates the friction of building drone video analysis capabilities into AI-powered applications. Whether you're building autonomous surveillance systems, geospatial intelligence pipelines, or context-aware LLM agents that reason over aerial imagery, DVSA provides the battle-tested infrastructure you need—so you can focus on your AI logic, not the plumbing.
+**DVSA (Drone Video Sensing Analytics)** is a production-ready, open-source platform that eliminates the friction of building drone video analysis capabilities into AI-powered applications. Whether[...]
 
 ### Why DVSA?
 
@@ -454,7 +454,7 @@ helm install dvsa ./charts/dvsa \
 
 ### Open Source
 - **Repository**: [github.com/ravibeta/dvsa-api](https://github.com/ravibeta/dvsa-api) (Python 97.8%) + [github.com/ravibeta/dvsa-ui](https://github.com/ravibeta/dvsa-ui) (TypeScript 78.2%)
-- **License**: Unlicense (Public Domain) — use freely, no attribution required.
+- **License**: Apache License 2.0 — see the project LICENSE file.
 - **Contributing**: PR welcome. See CONTRIBUTING.md for setup & testing.
 
 ### Get Help
@@ -526,9 +526,9 @@ npm install && npm test
 
 ## 💡 Why DVSA Will Become the Standard
 
-1. **Purpose-Built for Drones**: Most vision libraries (MediaPipe, OpenCV, PyTorch) treat drone footage as generic video. DVSA understands altitude, tiling, geospatial context, and real-time constraints of aerial analytics.
+1. **Purpose-Built for Drones**: Most vision libraries (MediaPipe, OpenCV, PyTorch) treat drone footage as generic video. DVSA understands altitude, tiling, geospatial context, and real-time cons[...]
 
-2. **Bridges AI & Vision**: Unlike closed-source commercial offerings, DVSA exposes clean Python/REST interfaces that LLM agents and RAG systems can reason over. It's not a black box—it's a building block for intelligent systems.
+2. **Bridges AI & Vision**: Unlike closed-source commercial offerings, DVSA exposes clean Python/REST interfaces that LLM agents and RAG systems can reason over. It's not a black box—it's a bui[...]
 
 3. **Production-Ready**: Eschews toy examples. Includes auth, async workers, logging, tests, deployment manifests, and error handling from day one.
 
@@ -551,7 +551,7 @@ npm install && npm test
 
 ## ⭐ License
 
-DVSA is released under the **Unlicense** (Public Domain). Use, modify, and distribute freely—no attribution required.
+DVSA is released under the **Apache License 2.0**. See the LICENSE file in the repository for full terms.
 
 ---
 
