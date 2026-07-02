@@ -41,13 +41,19 @@ class _StubClient(DVSAClient):
 
 
 class _FlakyClient(DVSAClient):
-    """Raises on the row whose video_id == fail_on."""
+    """Raises on the ``fail_on``-th call (1-indexed); succeeds otherwise.
+
+    Keys off call order rather than a context field because ``row_to_context``
+    intentionally drops columns DVSA does not understand.
+    """
 
     def __init__(self, fail_on):
         self.fail_on = fail_on
+        self.calls = 0
 
     def infer_one(self, context, model_name):
-        if context.get("_vid") == self.fail_on:
+        self.calls += 1
+        if self.calls == self.fail_on:
             raise RuntimeError("boom")
         return {"detections": [], "summary": {"count": 0}}
 
@@ -167,8 +173,8 @@ class TestBatching:
         assert out["metrics"]["errors"] == 0.0
 
     def test_run_inference_isolates_errors(self):
-        rows = [{"video_id": i, "_vid": i, "tracks": []} for i in range(3)]
-        out = run_inference_on_rows(rows, "m", _FlakyClient(fail_on=1), batch_size=10)
+        rows = [{"video_id": i, "tracks": []} for i in range(3)]
+        out = run_inference_on_rows(rows, "m", _FlakyClient(fail_on=2), batch_size=10)
         assert out["metrics"]["errors"] == 1.0
         errored = [r for r in out["results"] if r["error"]]
         assert len(errored) == 1 and "boom" in errored[0]["error"]
