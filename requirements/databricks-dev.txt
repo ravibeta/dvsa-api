@@ -1,0 +1,15 @@
+# Dev/CI dependencies for the Databricks connector suite ONLY.
+#
+# Kept separate from requirements/dev.txt so the core Django test env stays
+# lean (no Spark/JVM) and the Databricks CI job stays independent of Django.
+# On a real Databricks cluster, pyspark/mlflow are provided by the runtime —
+# these pins are for local development and GitHub Actions.
+
+pyspark==3.5.1
+mlflow==2.16.2
+pytest==8.3.4
+requests==2.32.3
+requests-mock==1.12.1
+nbformat==5.10.4
+nbqa==1.9.0
+flake8==7.1.1
