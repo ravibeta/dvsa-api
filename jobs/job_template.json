@@ -1,0 +1,52 @@
+{
+  "name": "dvsa-batch-inference",
+  "tags": {
+    "project": "dvsa",
+    "pipeline": "drone-video-inference"
+  },
+  "job_clusters": [
+    {
+      "job_cluster_key": "dvsa_batch",
+      "new_cluster": {
+        "spark_version": "15.4.x-scala2.12",
+        "node_type_id": "Standard_DS3_v2",
+        "autoscale": {
+          "min_workers": 2,
+          "max_workers": 8
+        },
+        "spark_env_vars": {
+          "DVSA_CONNECTOR_GIT": "git+https://github.com/ravibeta/DVSA-APIs#subdirectory=dvsa_databricks_connector"
+        }
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "batch_inference",
+      "job_cluster_key": "dvsa_batch",
+      "notebook_task": {
+        "notebook_path": "/Repos/dvsa/DVSA-APIs/notebooks/databricks/02-batch-inference",
+        "base_parameters": {
+          "input_delta_path": "drone.tracks",
+          "output_delta_path": "drone.inference_results",
+          "model_name": "visdrone-yolov8x",
+          "batch_size": "64",
+          "secret_scope": "dvsa"
+        }
+      },
+      "libraries": [
+        {
+          "pypi": {
+            "package": "git+https://github.com/ravibeta/DVSA-APIs#subdirectory=dvsa_databricks_connector"
+          }
+        }
+      ]
+    }
+  ],
+  "max_concurrent_runs": 1,
+  "schedule": {
+    "quartz_cron_expression": "0 0 * * * ?",
+    "timezone_id": "UTC",
+    "pause_status": "PAUSED"
+  }
+}

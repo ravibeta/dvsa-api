@@ -1,0 +1,3 @@
+{"video_id": 1, "frame_index": 0, "frames": [{"frame_index": 0, "timestamp": 0.0, "width": 3840, "height": 2160, "thumbnail_b64": null}], "sensor_meta": {"gps": [37.4219, -122.0841], "altitude": 120}, "query": "describe the scene"}
+{"video_id": 1, "frame_index": 5, "frames": [{"frame_index": 5, "timestamp": 0.2, "width": 3840, "height": 2160, "thumbnail_b64": null}], "sensor_meta": {"gps": [37.4220, -122.0841], "altitude": 121}, "query": "describe the scene"}
+{"video_id": 2, "frame_index": 0, "frames": [{"frame_index": 0, "timestamp": 0.0, "width": 1920, "height": 1080, "thumbnail_b64": null}], "sensor_meta": {"gps": [40.7128, -74.0060], "altitude": 90}, "query": "describe the scene"}

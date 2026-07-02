@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dvsa-databricks-connector"
+version = "0.1.0"
+description = "Databricks connector and pipeline helpers for DVSA-APIs drone video analytics."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "DVSA-APIs" }]
+keywords = ["databricks", "delta", "mlflow", "drone", "video", "analytics", "dvsa"]
+
+# Keep runtime deps minimal: only `requests` is required for remote mode.
+# `pyspark`, `delta` and `mlflow` are provided by the Databricks Runtime, so
+# they are declared as optional extras rather than hard dependencies.
+dependencies = ["requests>=2.25"]
+
+[project.optional-dependencies]
+spark = ["pyspark>=3.3"]
+mlflow = ["mlflow>=2.0"]
+dev = [
+    "pyspark>=3.3",
+    "mlflow>=2.0",
+    "pytest>=7.0",
+    "requests-mock>=1.9",
+]
+
+[project.urls]
+Homepage = "https://github.com/ravibeta/DVSA-APIs"
+Repository = "https://github.com/ravibeta/DVSA-APIs"
+
+[tool.setuptools]
+packages = ["dvsa_databricks_connector"]
+package-dir = { "dvsa_databricks_connector" = "." }
