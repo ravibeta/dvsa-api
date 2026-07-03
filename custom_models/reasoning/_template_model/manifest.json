@@ -1,0 +1,19 @@
+{
+  "name": "_template_model",
+  "version": "0.1.0",
+  "type": "local",
+  "entrypoint": "adapter.py",
+  "capabilities": ["anomaly_detection", "explainable_traces"],
+  "provider": null,
+  "cost_hint": 0.0,
+  "latency_hint_ms": 40,
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "confidence_floor": {"type": "number", "default": 0.5}
+    }
+  },
+  "config": {
+    "confidence_floor": 0.5
+  }
+}

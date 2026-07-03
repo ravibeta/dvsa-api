@@ -1,0 +1,25 @@
+{
+  "actions": [
+    {
+      "type": "anomaly",
+      "label": "accident",
+      "confidence": 0.95,
+      "bbox": [7.25, 5.0, 10.0, 10.0],
+      "tracks": ["veh-1", "veh-2"]
+    }
+  ],
+  "reasoning_trace": [
+    "query: 'Detect accidents on the urban street below the drone.'",
+    "analysing 2 object track(s)",
+    "closest approach veh-1<->veh-2 = 0.50px (<= 8.0px)",
+    "track veh-1 decelerates by 8.00 (>= 6.0)",
+    "tracks veh-1 and veh-2 converge at (12.25, 10.00) with sudden deceleration -> accident"
+  ],
+  "metadata": {
+    "model": "urban_accident_example",
+    "version": "1.0.0",
+    "tokens": null,
+    "latency_ms": 0,
+    "reasoning_effort": "low"
+  }
+}

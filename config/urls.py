@@ -14,8 +14,13 @@ urlpatterns = [
     path("api/v1/", include("config.urls_api")),
 
     # Reasoning-model integrations (Azure Foundry session lifecycle).
+    # NOTE: keep this BEFORE the generic reasoning router so the more specific
+    # "foundry/" prefix is matched first.
     path("api/reasoning/foundry/",
          include("dvsa_api.api.reasoning_foundry_router")),
+
+    # Generic pluggable reasoning models (folder-discovered, policy-routed).
+    path("api/reasoning/", include("dvsa_api.api.reasoning_router")),
 
     # API Documentation
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
