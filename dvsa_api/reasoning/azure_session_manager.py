@@ -340,8 +340,8 @@ class AzureFoundrySessionManager:
         if self.use_sdk_provision:
             return self._provision_sdk(session_id, model_name, resource_group,
                                        secret_name, tf_vars)
-        return self._provision_terraform(session_id, model_name, resource_group,
-                                          secret_name, tf_vars)
+        return self._provision_terraform(
+            session_id, model_name, resource_group, secret_name, tf_vars)
 
     def _synthetic_endpoint(self, session_id: str, model_name: str) -> str:
         return (
