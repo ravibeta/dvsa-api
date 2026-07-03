@@ -1,9 +1,9 @@
 """Safe dynamic loader for a model folder's ``adapter.py``.
 
 A "bring-your-own" reasoning model is just a directory under
-``models/reasoning/<name>/`` containing a ``manifest.json`` and an ``adapter.py``
-that exports a class named ``ReasoningModelAdapter`` implementing the contract in
-:mod:`dvsa_api.reasoning.adapter_base`.
+``custom_models/reasoning/<name>/`` containing a ``manifest.json`` and an
+``adapter.py`` that exports a class named ``ReasoningModelAdapter`` implementing
+the contract in :mod:`dvsa_api.reasoning.adapter_base`.
 
 This module imports that file *by path* (without requiring the model folder to be
 an installed package), instantiates the adapter with optional model-specific

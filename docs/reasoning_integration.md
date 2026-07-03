@@ -1,7 +1,7 @@
 # Pluggable reasoning models
 
 Add a custom **reasoning model** to dvsa-api by dropping a folder into
-`models/reasoning/<name>/`. The model is auto-discovered and exposed at
+`custom_models/reasoning/<name>/`. The model is auto-discovered and exposed at
 `POST /api/reasoning/<name>/infer` with **no other code changes**. This layers on
 the Azure Foundry session provider from
 [`docs/azure_foundry_integration.md`](azure_foundry_integration.md); both share
@@ -11,7 +11,7 @@ the same adapter contract and registry.
 
 ```bash
 # 1. Copy the template.
-cp -r models/reasoning/_template_model models/reasoning/my_model
+cp -r custom_models/reasoning/_template_model custom_models/reasoning/my_model
 
 # 2. Set "name": "my_model" in manifest.json and implement predict() in adapter.py.
 
@@ -102,6 +102,6 @@ embed secrets in code or manifests — use environment variables only.**
 
 ## Example
 
-`models/reasoning/urban_accident_example/` is a pure-Python, deterministic
+`custom_models/reasoning/urban_accident_example/` is a pure-Python, deterministic
 accident detector. Feed it `sample_input.json` to get an `accident` anomaly and
 an explainable trace — see its `README.md`.

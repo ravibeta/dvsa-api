@@ -9,7 +9,7 @@ on:
     paths:
       - "dvsa_api/reasoning/**"
       - "dvsa_api/api/reasoning_router.py"
-      - "models/reasoning/**"
+      - "custom_models/reasoning/**"
       - "tests/test_reasoning_registry.py"
       - "tests/test_reasoning_api.py"
       - "tests/test_example_model.py"
@@ -44,7 +44,7 @@ jobs:
       - name: Lint (flake8)
         run: |
           flake8 dvsa_api/reasoning dvsa_api/api/reasoning_router.py \
-            models/reasoning \
+            custom_models/reasoning \
             tests/test_reasoning_registry.py \
             tests/test_reasoning_api.py \
             tests/test_example_model.py \

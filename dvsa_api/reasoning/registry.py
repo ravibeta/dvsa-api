@@ -5,10 +5,12 @@ Responsibilities
 * **Registry** — map a model ``name`` to a lazy adapter factory
   (:func:`register`, :func:`get_model`, :func:`list_models`, :func:`call_model`).
   The Azure Foundry provider registers itself here so it shares this machinery.
-* **Discovery** — scan ``models/reasoning/*`` for folders containing a
+* **Discovery** — scan ``custom_models/reasoning/*`` for folders containing a
   ``manifest.json`` and register each as a lazy factory (local adapters are
-  imported on first use; Azure/remote adapters wrap an endpoint). See
-  :func:`discover_models` / :func:`ensure_discovered`.
+  imported on first use; Azure/remote adapters wrap an endpoint). Reasoning
+  models live nested under ``custom_models/`` as a clearly-separated special
+  case of the wider custom-model machinery. See :func:`discover_models` /
+  :func:`ensure_discovered`.
 * **Policy routing** — :func:`select_model` picks a model name for a request from
   ``by_name`` / ``cost_optimized`` / ``latency_optimized`` / ``privacy_first``
   policies using manifest metadata and environment variables.
@@ -36,10 +38,12 @@ _MANIFESTS: Dict[str, "ModelManifest"] = {}
 _LOCK = threading.RLock()
 _DISCOVERED = False
 
-# Default location scanned for model folders: <repo-root>/models/reasoning.
+# Default location scanned for model folders: <repo-root>/custom_models/reasoning.
+# Reasoning models are nested under custom_models/ (their own "reasoning/"
+# subtree), separate from the vision/detection custom models.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_MODELS_ROOT = os.environ.get(
-    "REASONING_MODELS_ROOT", os.path.join(_REPO_ROOT, "models", "reasoning"))
+    "REASONING_MODELS_ROOT", os.path.join(_REPO_ROOT, "custom_models", "reasoning"))
 
 # Heuristic hints when a manifest does not specify them explicitly.
 _LOCAL_LATENCY_HINT_MS = 50

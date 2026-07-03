@@ -10,6 +10,14 @@ interface. It supports **ONNX**, **PyTorch (TorchScript / `.pt`)** and
 > the proven `custom_model.onnx_inference.CustomONNXDetector`, so behaviour and
 > the `(x, y, w, h)` output contract are identical.
 
+> **Reasoning models** are a separate special case nested under
+> [`custom_models/reasoning/`](reasoning/README.md): pluggable *reasoning*
+> adapters (e.g. accident detection from object tracks) exposed at
+> `POST /api/reasoning/<name>/infer`. They are clearly separated from the
+> vision/detection machinery documented here — different contract
+> (`predict`/`health_check`), different registry (`dvsa_api.reasoning`), and their
+> own folder-discovery. See [`docs/reasoning_integration.md`](../docs/reasoning_integration.md).
+
 ## The common detector interface
 
 Every adapter implements the same three methods and returns the same dict shape

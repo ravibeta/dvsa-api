@@ -24,7 +24,7 @@ See `sample_input.json` and `sample_output.json`. Each track carries `samples`
 ```bash
 curl -X POST http://localhost:8000/api/reasoning/urban_accident_example/infer \
      -H 'Content-Type: application/json' \
-     --data @models/reasoning/urban_accident_example/sample_input.json
+     --data @custom_models/reasoning/urban_accident_example/sample_input.json
 ```
 
 Expected: an `actions[0]` of `{"type": "anomaly", "label": "accident", "confidence": 0.95, ...}`

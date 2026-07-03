@@ -1,7 +1,7 @@
 """Discovery + registry + policy-routing tests for the pluggable reasoning layer.
 
 Pure-Python: no Django, no network, no model binaries. Exercises folder discovery
-of ``models/reasoning/*``, lazy adapter loading, the contract validation, and the
+of ``custom_models/reasoning/*``, lazy adapter loading, the contract validation, and
 ``select_model`` policy engine.
 """
 

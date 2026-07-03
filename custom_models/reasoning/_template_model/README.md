@@ -1,6 +1,6 @@
 # `_template_model` — reasoning adapter template
 
-Copy this folder to `models/reasoning/<your_model_name>/` and edit the three
+Copy this folder to `custom_models/reasoning/<your_model_name>/` and edit the three
 files to register a new reasoning model. **No other code changes are required** —
 the model is auto-discovered at startup (or on first request) and becomes
 callable at `POST /api/reasoning/<your_model_name>/infer`.
@@ -16,7 +16,7 @@ callable at `POST /api/reasoning/<your_model_name>/infer`.
 ## Quick start
 
 ```bash
-cp -r models/reasoning/_template_model models/reasoning/my_model
+cp -r custom_models/reasoning/_template_model custom_models/reasoning/my_model
 # edit manifest.json -> "name": "my_model", and implement adapter.py
 # then:
 curl -X POST http://localhost:8000/api/reasoning/my_model/infer \

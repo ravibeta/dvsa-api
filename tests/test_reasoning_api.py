@@ -17,7 +17,7 @@ from dvsa_api.reasoning import registry
 
 _MODEL_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "models", "reasoning", "urban_accident_example")
+    "custom_models", "reasoning", "urban_accident_example")
 
 
 def _sample_input():
