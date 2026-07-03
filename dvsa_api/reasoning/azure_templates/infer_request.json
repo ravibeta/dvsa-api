@@ -1,0 +1,15 @@
+{
+  "query": "Detect accidents on the urban street in this aerial clip.",
+  "reasoning_effort": "medium",
+  "sensor_meta": {"gps": [37.7749, -122.4194], "time": "2026-07-02T18:20:00Z"},
+  "frames": [
+    {"index": 0, "ts_ms": 0},
+    {"index": 1, "ts_ms": 200}
+  ],
+  "tracks": [
+    {"id": "veh-1", "class": "car", "velocity": [12.0, 0.1], "positions": [[100, 200], [140, 202]]},
+    {"id": "veh-2", "class": "car", "velocity": [-11.5, 0.0], "positions": [[300, 205], [255, 204]]}
+  ],
+  "precomputed_features": null,
+  "bbox": [120, 190, 60, 40]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "chatcmpl-abc123",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"actions\": [{\"type\": \"label\", \"label\": \"nominal\", \"confidence\": 0.7}], \"reasoning_trace\": [\"no converging tracks\"]}"
+      }
+    }
+  ],
+  "usage": {"total_tokens": 64}
+}

@@ -1,0 +1,11 @@
+# Top-level example tfvars for infra/azure/foundry_module.
+# Used by scripts/terraform_local_plan.sh for plan-only CI validation.
+
+location              = "eastus"
+resource_group_name   = "rg-foundry-example"
+session_name          = "example-0001"
+foundry_model_sku     = "o1-mini"
+managed_identity_name = "id-foundry-example"
+key_vault_secret_name = "foundry-endpoint-key"
+private_networking    = false
+ttl_minutes           = 30

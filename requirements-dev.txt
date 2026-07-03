@@ -1,0 +1,21 @@
+# Dev/test dependencies for the Azure Foundry reasoning integration.
+#
+# Layers on the repo's existing dev set (Django, DRF, pytest, flake8, mypy) and
+# adds the Azure SDKs used for *type hints and mocking* plus pytest-mock. The
+# integration itself runs offline without any of the azure-* packages installed
+# (they are imported lazily), so this file is only needed for the fuller CI job.
+
+-r requirements/dev.txt
+
+# Testing helpers
+pytest-mock==3.14.0
+
+# Azure SDKs (import lazily at runtime; here for type hints + realistic mocks).
+# azure-identity / azure-mgmt-resource already come from requirements/base.txt;
+# they are re-listed here at the SAME pins to avoid a resolver conflict.
+azure-identity==1.19.0
+azure-keyvault-secrets==4.9.0
+azure-mgmt-resource==23.1.1
+
+# Optional: drive terraform plan from Python if desired (CI uses the shell wrapper)
+python-terraform==0.10.1
