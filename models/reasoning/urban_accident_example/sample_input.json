@@ -1,0 +1,25 @@
+{
+  "query": "Detect accidents on the urban street below the drone.",
+  "sensor_meta": {"gps": [51.5074, -0.1278], "time": "2026-07-03T09:15:00Z", "altitude_m": 80},
+  "frames": [{"frame_id": 0, "ts": 0.0}, {"frame_id": 30, "ts": 1.0}, {"frame_id": 60, "ts": 2.0}],
+  "tracks": [
+    {
+      "id": "veh-1",
+      "class": "vehicle",
+      "samples": [
+        {"t": 0.0, "x": 0.0, "y": 10.0},
+        {"t": 1.0, "x": 10.0, "y": 10.0},
+        {"t": 2.0, "x": 12.0, "y": 10.0}
+      ]
+    },
+    {
+      "id": "veh-2",
+      "class": "vehicle",
+      "samples": [
+        {"t": 0.0, "x": 20.0, "y": 0.0},
+        {"t": 1.0, "x": 13.0, "y": 10.0},
+        {"t": 2.0, "x": 12.5, "y": 10.0}
+      ]
+    }
+  ]
+}

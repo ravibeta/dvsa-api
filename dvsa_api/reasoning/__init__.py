@@ -15,6 +15,7 @@ so it participates in the shared registry/fallback machinery.
 from __future__ import annotations
 
 from .adapter_base import ReasoningModelAdapter
+from .azure_adapter import AzureReasoningAdapter
 from .azure_foundry_adapter import AzureFoundryAdapter, build_adapter_for_session
 from .azure_session_manager import (
     AzureFoundrySessionManager,
@@ -30,7 +31,19 @@ from .errors import (
     SessionNotFoundError,
     TeardownError,
 )
-from .registry import call_model, get_model, list_models, register, register_instance
+from .registry import (
+    ModelManifest,
+    call_model,
+    discover_models,
+    ensure_discovered,
+    get_manifest,
+    get_model,
+    list_manifests,
+    list_models,
+    register,
+    register_instance,
+    select_model,
+)
 
 # Register the Foundry provider factory. A no-arg AzureFoundryAdapter uses
 # direct-endpoint mode when AZURE_FOUNDRY_ENDPOINT is set; managed sessions bind
@@ -40,16 +53,23 @@ register("azure_foundry", AzureFoundryAdapter)
 __all__ = [
     "ReasoningModelAdapter",
     "AzureFoundryAdapter",
+    "AzureReasoningAdapter",
     "build_adapter_for_session",
     "AzureFoundrySessionManager",
     "FoundrySession",
     "get_session_manager",
     "reset_session_manager",
+    "ModelManifest",
     "call_model",
+    "discover_models",
+    "ensure_discovered",
+    "get_manifest",
     "get_model",
+    "list_manifests",
     "list_models",
     "register",
     "register_instance",
+    "select_model",
     "ProvisioningError",
     "TeardownError",
     "SessionNotFoundError",

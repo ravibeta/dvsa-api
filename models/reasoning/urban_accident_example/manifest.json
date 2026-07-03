@@ -1,0 +1,23 @@
+{
+  "name": "urban_accident_example",
+  "version": "1.0.0",
+  "type": "local",
+  "entrypoint": "adapter.py",
+  "capabilities": ["anomaly_detection", "explainable_traces", "urban_street"],
+  "provider": null,
+  "cost_hint": 0.0,
+  "latency_hint_ms": 30,
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "proximity_threshold": {"type": "number", "default": 8.0},
+      "time_window_s": {"type": "number", "default": 1.0},
+      "deceleration_threshold": {"type": "number", "default": 6.0}
+    }
+  },
+  "config": {
+    "proximity_threshold": 8.0,
+    "time_window_s": 1.0,
+    "deceleration_threshold": 6.0
+  }
+}
