@@ -1,0 +1,8 @@
+{
+  "actions": [
+    {"type": "anomaly", "label": "accident", "confidence": 0.91, "bbox": [10, 20, 30, 40]}
+  ],
+  "reasoning_trace": ["two vehicles decelerate sharply and overlap"],
+  "reasoning_effort": "high",
+  "usage": {"total_tokens": 128}
+}

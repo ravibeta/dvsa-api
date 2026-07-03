@@ -1,0 +1,15 @@
+{
+  "session_id": "0a1b2c3d4e5f60718293a4b5c6d7e8f9",
+  "model_name": "o1-mini",
+  "resource_group": "rg-foundry-o1mini-0a1b2c3d",
+  "managed_identity_name": "id-foundry-o1mini-0a1b2c3d",
+  "key_vault_secret_name": "foundry-key-o1mini-0a1b2c3d",
+  "endpoint_url": "https://foundry-0a1b2c3d.example-foundry.local/reasoning/o1-mini/score",
+  "location": "eastus",
+  "private_networking": false,
+  "max_duration_minutes": 30,
+  "max_cost_usd": 1.0,
+  "cost_estimate_usd": 0.3,
+  "status": "active",
+  "provisioner": "dryrun"
+}

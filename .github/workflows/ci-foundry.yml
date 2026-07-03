@@ -1,0 +1,64 @@
+name: CI (Azure Foundry reasoning)
+
+# Validates the Azure Foundry reasoning integration entirely offline: unit tests
+# mock the Azure SDK + Terraform, and the module is only fmt/validate/plan-checked
+# (never applied). No live Azure workspace or credentials are required.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dvsa_api/**"
+      - "infra/azure/**"
+      - "scripts/terraform_local_plan.sh"
+      - "scripts/foundry_session_cli.py"
+      - "tests/test_azure_foundry_adapter.py"
+      - "tests/test_azure_session_manager.py"
+      - "tests/test_foundry_router.py"
+      - "tests/fixtures/**"
+      - "requirements-dev.txt"
+      - ".github/workflows/ci-foundry.yml"
+  pull_request:
+
+jobs:
+  foundry-tests:
+    runs-on: ubuntu-latest
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.testing
+      # Keep the integration fully offline in CI.
+      AZURE_FOUNDRY_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: |
+            requirements/base.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Lint (flake8)
+        run: flake8 dvsa_api scripts/foundry_session_cli.py --max-line-length=100 --extend-ignore=E203,W503
+
+      - name: Type-check (mypy, non-blocking)
+        run: mypy dvsa_api --ignore-missing-imports || true
+
+      - name: Run reasoning + Foundry tests (offline, mocked)
+        run: |
+          pytest -q -p no:cacheprovider --no-cov -k "not live_azure" \
+            tests/test_azure_session_manager.py \
+            tests/test_azure_foundry_adapter.py \
+            tests/test_foundry_router.py
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.5"
+
+      - name: Terraform fmt + validate + plan (plan-only, no apply)
+        run: bash scripts/terraform_local_plan.sh

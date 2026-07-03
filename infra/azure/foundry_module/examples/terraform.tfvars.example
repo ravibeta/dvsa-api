@@ -1,0 +1,20 @@
+# Example variables for the ephemeral Foundry reasoning module.
+# Copy to terraform.tfvars and adjust. Never commit real secrets.
+
+subscription_id       = "00000000-0000-0000-0000-000000000000"
+location              = "eastus"
+resource_group_name   = "rg-foundry-o1mini-ab12cd34"
+session_name          = "o1mini-ab12cd34"
+foundry_model_sku     = "o1-mini"
+foundry_model_version = "1"
+managed_identity_name = "id-foundry-o1mini-ab12cd34"
+key_vault_name        = "" # empty -> derived from session_name
+key_vault_secret_name = "foundry-endpoint-key"
+private_networking    = false
+ttl_minutes           = 30
+cost_center           = "dvsa-reasoning"
+
+tags = {
+  owner   = "team-dvsa"
+  purpose = "reasoning-session"
+}
