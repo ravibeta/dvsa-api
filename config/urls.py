@@ -22,6 +22,9 @@ urlpatterns = [
     # Generic pluggable reasoning models (folder-discovered, policy-routed).
     path("api/reasoning/", include("dvsa_api.api.reasoning_router")),
 
+    # Multi-Agent Control Plane (opt-in via ENABLE_MCP; folder-discovered agents).
+    path("api/mcp/", include("dvsa_api.api.mcp_router")),
+
     # API Documentation
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),

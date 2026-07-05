@@ -1,0 +1,20 @@
+{
+  "name": "_template_agent",
+  "version": "0.1.0",
+  "type": "inprocess",
+  "entrypoint": "agent.py",
+  "capabilities": ["example"],
+  "priority": 5,
+  "latency_hint_ms": 20,
+  "resources": {"cpu": "0.25", "memory": "128Mi"},
+  "fallback_agents": [],
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "greeting": {"type": "string", "default": "hello"}
+    }
+  },
+  "config": {
+    "greeting": "hello"
+  }
+}

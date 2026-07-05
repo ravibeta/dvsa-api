@@ -1,0 +1,12 @@
+{
+  "name": "analyzer_agent",
+  "version": "1.0.0",
+  "type": "inprocess",
+  "entrypoint": "agent.py",
+  "capabilities": ["analyzer"],
+  "priority": 4,
+  "latency_hint_ms": 40,
+  "resources": {"cpu": "0.5", "memory": "256Mi"},
+  "fallback_agents": [],
+  "config": {"reasoning_model": "urban_accident_example"}
+}

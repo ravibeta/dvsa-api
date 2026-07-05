@@ -1,0 +1,12 @@
+{
+  "name": "coordinator_agent",
+  "version": "1.0.0",
+  "type": "inprocess",
+  "entrypoint": "agent.py",
+  "capabilities": ["coordinator"],
+  "priority": 2,
+  "latency_hint_ms": 25,
+  "resources": {"cpu": "0.25", "memory": "128Mi"},
+  "fallback_agents": [],
+  "config": {"escalation_confidence": 0.8}
+}
