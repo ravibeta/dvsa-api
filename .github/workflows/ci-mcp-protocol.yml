@@ -1,0 +1,90 @@
+name: CI (MCP protocol server)
+
+# Validates the DVSA Model-Context-Protocol server entirely offline: JSON-RPC
+# compliance, tool invocation (reasoning-backed), resource retrieval, and tool
+# schema validation. No network, no external MCP SDK required.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dvsa_api/mcp/server.py"
+      - "dvsa_api/mcp/tool_registry.py"
+      - "dvsa_api/mcp/resource_adapter.py"
+      - "dvsa_api/mcp/protocol_errors.py"
+      - "dvsa_api/mcp/config.json"
+      - "mcp/resource_data/**"
+      - "mcp/clients/**"
+      - "scripts/mcp_server_run.py"
+      - "scripts/mcp_client_test.py"
+      - "tests/test_mcp_server.py"
+      - "tests/test_mcp_tools.py"
+      - "tests/test_mcp_resources.py"
+      - ".github/workflows/ci-mcp-protocol.yml"
+  pull_request:
+
+jobs:
+  mcp-protocol-tests:
+    runs-on: ubuntu-latest
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.testing
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements/base.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Lint (flake8)
+        run: |
+          flake8 dvsa_api/mcp/server.py dvsa_api/mcp/tool_registry.py \
+            dvsa_api/mcp/resource_adapter.py dvsa_api/mcp/protocol_errors.py \
+            mcp/clients/python_example/client.py \
+            scripts/mcp_server_run.py scripts/mcp_client_test.py \
+            tests/test_mcp_server.py tests/test_mcp_tools.py \
+            tests/test_mcp_resources.py \
+            --max-line-length=100 --extend-ignore=E203,W503
+
+      - name: Validate config + tool/resource schemas
+        run: |
+          python - <<'PY'
+          import json
+          from dvsa_api.mcp.server import build_default_server
+
+          # config.json is well-formed and lists the advertised tools.
+          with open("dvsa_api/mcp/config.json", encoding="utf-8") as fh:
+              config = json.load(fh)
+          assert config["server"]["name"] == "dvsa-mcp-server"
+
+          server = build_default_server()
+          tools = server.handle(
+              {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})["result"]["tools"]
+          names = {t["name"] for t in tools}
+          assert set(config["tools"]) <= names, (config["tools"], names)
+          for t in tools:
+              assert t["name"] and t["description"]
+              assert t["inputSchema"]["type"] == "object", t["name"]
+              assert "outputSchema" in t, t["name"]
+          resources = server.handle(
+              {"jsonrpc": "2.0", "id": 2, "method": "resources/list"})["result"]["resources"]
+          assert any(r["uri"] == "dvsa://tracks/demo" for r in resources)
+          print("validated tools:", sorted(names))
+          PY
+
+      - name: Run MCP protocol tests (offline)
+        run: |
+          pytest -q -p no:cacheprovider --no-cov \
+            tests/test_mcp_server.py \
+            tests/test_mcp_tools.py \
+            tests/test_mcp_resources.py
+
+      - name: Smoke-test stdio server + client
+        run: python scripts/mcp_client_test.py
