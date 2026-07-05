@@ -1,0 +1,54 @@
+{
+  "mission_id": "urban_accident_response",
+  "description": "Coordinated urban-street accident triage: scout -> analyzer -> coordinator -> (human confirm).",
+  "triggers": [{"type": "event", "on": "anomaly_candidate"}, {"type": "manual"}],
+  "selection_policy": "priority",
+  "timeouts": {"task_ms": 10000, "mission_ms": 60000},
+  "retry_policy": {"max_retries": 1, "backoff_ms": 100},
+  "escalation_rules": {
+    "on_labels": ["accident"],
+    "require_human": true,
+    "min_confidence": 0.8
+  },
+  "agents": [
+    {"capability": "scout"},
+    {"capability": "analyzer"},
+    {"capability": "coordinator"},
+    {"capability": "human_interface"}
+  ],
+  "tasks": [
+    {
+      "id": "scout",
+      "type": "scout_scan",
+      "capability": "scout",
+      "priority": 3,
+      "payload": {
+        "tracks": [
+          {"id": "veh-1", "samples": [
+            {"t": 0.0, "x": 0.0, "y": 10.0},
+            {"t": 1.0, "x": 10.0, "y": 10.0},
+            {"t": 2.0, "x": 12.0, "y": 10.0}]},
+          {"id": "veh-2", "samples": [
+            {"t": 0.0, "x": 20.0, "y": 0.0},
+            {"t": 1.0, "x": 13.0, "y": 10.0},
+            {"t": 2.0, "x": 12.5, "y": 10.0}]}
+        ]
+      }
+    },
+    {
+      "id": "analyze",
+      "type": "analyze_scene",
+      "capability": "analyzer",
+      "priority": 4,
+      "depends_on": ["scout"],
+      "payload": {"query": "Confirm whether the scene contains an accident."}
+    },
+    {
+      "id": "coordinate",
+      "type": "coordinate_response",
+      "capability": "coordinator",
+      "priority": 2,
+      "depends_on": ["analyze"]
+    }
+  ]
+}

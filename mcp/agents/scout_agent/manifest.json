@@ -1,0 +1,12 @@
+{
+  "name": "scout_agent",
+  "version": "1.0.0",
+  "type": "inprocess",
+  "entrypoint": "agent.py",
+  "capabilities": ["scout"],
+  "priority": 3,
+  "latency_hint_ms": 15,
+  "resources": {"cpu": "0.25", "memory": "128Mi"},
+  "fallback_agents": [],
+  "config": {"min_tracks_for_candidate": 2}
+}

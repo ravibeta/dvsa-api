@@ -1,0 +1,4 @@
+[
+  {"at_ms": 0, "kind": "stream_start", "note": "aerial feed over urban intersection"},
+  {"at_ms": 2000, "kind": "anomaly_candidate", "note": "two vehicles converge"}
+]

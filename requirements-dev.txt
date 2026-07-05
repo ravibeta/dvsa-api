@@ -9,6 +9,8 @@
 
 # Testing helpers
 pytest-mock==3.14.0
+# MCP: mock HTTP for container/remote agent shims in tests (runtime uses stdlib).
+requests-mock==1.12.1
 
 # Azure SDKs (import lazily at runtime; here for type hints + realistic mocks).
 # azure-identity / azure-mgmt-resource already come from requirements/base.txt;

@@ -1,0 +1,42 @@
+{
+  "mission_id": "infrastructure_inspection",
+  "description": "Scheduled infrastructure inspection with multi-agent handoffs: scout survey -> analyzer assessment -> coordinator report.",
+  "triggers": [{"type": "time", "cron": "0 6 * * *"}, {"type": "manual"}],
+  "selection_policy": "latency_optimized",
+  "timeouts": {"task_ms": 10000, "mission_ms": 60000},
+  "retry_policy": {"max_retries": 2, "backoff_ms": 150},
+  "escalation_rules": {
+    "on_labels": ["defect", "accident"],
+    "require_human": true,
+    "min_confidence": 0.85
+  },
+  "agents": [
+    {"capability": "scout"},
+    {"capability": "analyzer"},
+    {"capability": "coordinator"}
+  ],
+  "tasks": [
+    {
+      "id": "survey",
+      "type": "scout_survey",
+      "capability": "scout",
+      "priority": 3,
+      "payload": {"tracks": [], "frames": [{"frame_id": 0, "asset": "pylon-7"}]}
+    },
+    {
+      "id": "assess",
+      "type": "analyze_assets",
+      "capability": "analyzer",
+      "priority": 4,
+      "depends_on": ["survey"],
+      "payload": {"query": "Assess inspected assets for structural defects."}
+    },
+    {
+      "id": "report",
+      "type": "coordinate_report",
+      "capability": "coordinator",
+      "priority": 2,
+      "depends_on": ["assess"]
+    }
+  ]
+}

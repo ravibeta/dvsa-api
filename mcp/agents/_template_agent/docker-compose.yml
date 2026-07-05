@@ -1,0 +1,18 @@
+# Local container-agent testing for the MCP template agent.
+#
+# Build + run the HTTP shim, then register it as a `type: "remote"` agent by
+# setting "endpoint": "http://localhost:8080" in a manifest.json, or enable the
+# container runtime with MCP_CONTAINER_RUNTIME=docker.
+services:
+  template-agent:
+    build: .
+    image: dvsa-mcp-template-agent:local
+    ports:
+      - "8080:8080"
+    environment:
+      MCP_AGENT_PORT: "8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3

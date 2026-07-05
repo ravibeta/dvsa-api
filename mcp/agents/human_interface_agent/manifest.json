@@ -1,0 +1,12 @@
+{
+  "name": "human_interface_agent",
+  "version": "1.0.0",
+  "type": "inprocess",
+  "entrypoint": "agent.py",
+  "capabilities": ["human_interface"],
+  "priority": 1,
+  "latency_hint_ms": 10,
+  "resources": {"cpu": "0.1", "memory": "64Mi"},
+  "fallback_agents": [],
+  "config": {"webhook_url": null}
+}
