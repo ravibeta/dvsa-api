@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "dvsa": {
+      "command": "python",
+      "args": ["/ABSOLUTE/PATH/TO/dvsa-api/scripts/mcp_server_run.py"],
+      "env": {
+        "MCP_RESOURCE_DATA_ROOT": "/ABSOLUTE/PATH/TO/dvsa-api/mcp/resource_data"
+      }
+    }
+  }
+}

@@ -1,16 +1,18 @@
-"""MCP (Multi-Agent Control Plane) — pluggable coordinated agent workflows.
+"""``dvsa_api.mcp`` — two independent, coexisting MCP subsystems.
 
-Public surface
---------------
-* :class:`AgentAdapter` — the agent contract every agent implements.
-* registry helpers — :func:`get_agent`, :func:`list_agents`, :func:`select_agent`,
-  :func:`discover_agents`.
-* planning/execution — :func:`plan_mission`, :class:`Executor`.
-* :class:`MCPSessionManager` / :func:`get_session_manager` — mission lifecycle.
+1. **Model-Context-Protocol server** (Anthropic MCP) — exposes DVSA analytics as
+   MCP *tools* and DVSA datasets as MCP *resources* over JSON-RPC so Claude
+   Desktop / CLI or any MCP client can call DVSA natively. See :class:`MCPServer`
+   / :func:`build_default_server` (modules ``server``, ``tool_registry``,
+   ``resource_adapter``).
 
-MCP is **additive and opt-in**: enable it by setting ``ENABLE_MCP=true`` and
-dropping agent folders under ``mcp/agents/``. Nothing here touches existing DVSA
-APIs, and the default in-memory message bus needs no external services.
+2. **Multi-Agent Control Plane** — pluggable coordinated agent workflows
+   (missions/planner/executor/agents). See :class:`AgentAdapter`,
+   :func:`select_agent`, :func:`plan_mission`, :class:`MCPSessionManager`.
+
+Both are additive and opt-in; the control plane is enabled with ``ENABLE_MCP`` and
+agent folders under ``mcp/agents/``, while the protocol server is launched via
+``scripts/mcp_server_run.py``. Neither touches existing DVSA API signatures.
 """
 
 from __future__ import annotations
@@ -46,6 +48,8 @@ from .session_manager import (
     get_session_manager,
     reset_session_manager,
 )
+# Model-Context-Protocol server (independent of the control plane above).
+from .server import MCPServer, build_default_server
 
 
 def is_mcp_enabled() -> bool:
@@ -58,6 +62,8 @@ def is_mcp_enabled() -> bool:
 
 
 __all__ = [
+    "MCPServer",
+    "build_default_server",
     "AgentAdapter",
     "AgentManifest",
     "Executor",
