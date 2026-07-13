@@ -113,6 +113,31 @@ run_pipeline(run_input, inference=TritonInference(), storage=S3Storage(),
              store_dest="s3://bucket/runs/")
 ```
 
+### Option: reuse the existing DVSA views (built-in smarts)
+
+Instead of the offline reference codepaths, a run can leverage the production
+`apps/videos/views.py` views in-process — reusing their Azure upload + signal-driven
+indexing (`VideoUploadAPIView`) and agentic RAG synthesis (`ChatAPIView`). Django/DRF
+are imported lazily, so this stays opt-in and the package remains offline-importable.
+
+```python
+from agent_kits.common import DvsaVideoUploadAdapter, DvsaChatAnalyzer, run_pipeline
+
+ingestor = DvsaVideoUploadAdapter(account_id="acct-1", user=request.user)
+analyzer = DvsaChatAnalyzer(account_id="acct-1", user=request.user)
+
+out = run_pipeline(run_input,                    # offline detection still runs
+                   ingestor=ingestor,            # → VideoUploadAPIView (upload+index)
+                   analyzer=analyzer,            # → ChatAPIView (agentic answer)
+                   query="what happened at 0:02?")
+# out.summary["ingestion"]        -> VideoEntity payload
+# out.summary["agentic_answer"]   -> synthesised text
+```
+
+`DvsaVideoUploadAdapter` is also a `VideoFetcher` (`ingest_on_fetch=True` ingests
+during `fetch_video`). `account_id`/`user` fall back to `DVSA_ACCOUNT_ID`. Both hooks
+default off, so omitting them leaves the offline behaviour byte-identical.
+
 ## Model-version pinning
 
 Every `Detection` and `RunOutput` carries a `model_version`. Pin it explicitly on

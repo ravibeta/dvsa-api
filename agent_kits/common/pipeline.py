@@ -39,11 +39,26 @@ def run_pipeline(
     storage: Optional[StorageAdapter] = None,
     store_dest: Optional[str] = None,
     logger: Optional[RunLogger] = None,
+    ingestor: Optional[object] = None,
+    analyzer: Optional[object] = None,
+    query: Optional[str] = None,
 ) -> RunOutput:
     """Execute the full pipeline for ``run_input`` and return a :class:`RunOutput`.
 
     Adapters default to the offline reference implementations. When ``store_dest``
     is provided the output is also persisted via ``storage``.
+
+    Two optional hooks let a run leverage the existing DVSA views (see
+    :class:`~agent_kits.common.adapters.DvsaVideoUploadAdapter` /
+    :class:`~agent_kits.common.adapters.DvsaChatAnalyzer`):
+
+    * ``ingestor`` — anything with ``ingest_video(video_uri)``; called before frame
+      extraction so the video is uploaded/indexed via ``VideoUploadAPIView``. Its
+      result is recorded under ``summary['ingestion']``.
+    * ``analyzer`` + ``query`` — anything with ``ask(query)``; called after inference
+      to attach an agentic answer (``ChatAPIView``) under ``summary['agentic_answer']``.
+
+    Both default to ``None``, leaving the offline behaviour byte-identical.
     """
     fetcher = fetcher or LocalVideoFetcher()
     extractor = extractor or SyntheticFrameExtractor()
@@ -58,6 +73,11 @@ def run_pipeline(
 
     start_time = _now_iso()
     log.info("pipeline_start", video_uri=run_input.video_uri)
+
+    ingestion = None
+    if ingestor is not None:
+        ingestion = ingestor.ingest_video(run_input.video_uri)
+        log.info("video_ingested", status=ingestion.get("status_code"))
 
     fps = float(run_input.processing_flags.get("fps", 1.0))
     local_path = fetcher.fetch_video(run_input.video_uri)
@@ -85,6 +105,17 @@ def run_pipeline(
                               trace_id=trace_id,
                               extra={"video_uri": run_input.video_uri}),
     )
+
+    if ingestion is not None:
+        output.summary["ingestion"] = ingestion
+
+    if analyzer is not None and query:
+        answer = analyzer.ask(query)
+        output.summary["agentic_answer"] = answer.get("answer")
+        output.summary["agentic_query"] = query
+        if output.provenance is not None:
+            output.provenance.extra["analyzer"] = "ChatAPIView"
+        log.info("agentic_answer_attached", chars=len(answer.get("answer") or ""))
 
     if store_dest:
         uri = storage.store_output(output, store_dest)

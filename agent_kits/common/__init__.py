@@ -8,6 +8,8 @@ Import from here rather than the submodules directly, e.g.::
 from __future__ import annotations
 
 from .adapters import (
+    DvsaChatAnalyzer,
+    DvsaVideoUploadAdapter,
     Frame,
     FrameExtractor,
     InferenceAdapter,
@@ -55,6 +57,8 @@ __all__ = [
     "SyntheticFrameExtractor",
     "MockInferenceAdapter",
     "LocalFileStorageAdapter",
+    "DvsaVideoUploadAdapter",
+    "DvsaChatAnalyzer",
     # pipeline
     "run_pipeline",
     # logging
