@@ -1,0 +1,17 @@
+# Runtime dependencies for the DVSA Agent Kits.
+#
+# The kits are designed to degrade gracefully: agent_kits.common ships a
+# dependency-free Pydantic shim and a minimal YAML loader, so the package stays
+# importable even if these are absent. Installing them enables full Pydantic
+# validation, the FastAPI cloud runner, and PyYAML parsing.
+
+# Schemas + validation (a compatibility shim is used when this is not installed).
+pydantic>=2,<3
+
+# Cloud Autonomous runner HTTP service (imported lazily; only needed to serve).
+fastapi==0.115.6
+# FastAPI's TestClient (and any httpx-based client) needs this.
+httpx==0.28.1
+
+# Config parsing for agent_profile.yaml / *.skill (a fallback parser exists).
+PyYAML==6.0.2

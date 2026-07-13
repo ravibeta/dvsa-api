@@ -1,0 +1,11 @@
+# Skill: detect_objects
+name: detect_objects
+description: Run object detection over extracted frames, producing Detections.
+step: detect_objects
+destructive: false
+inputs:
+  video_uri: "URI of the source video"
+  fps: "Frames per second to sample before inference"
+  model_version: "Optional pinned model version tag for provenance"
+prompt_example: >
+  Detect objects in file:///data/flight.json at 5 fps and summarise counts by class.

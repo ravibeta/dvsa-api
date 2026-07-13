@@ -1,0 +1,35 @@
+{
+  "display_information": {
+    "name": "DVSA Runner",
+    "description": "Launch drone-video analysis runs from Slack.",
+    "background_color": "#1f2937"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "dvsa-runner",
+      "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "/dvsa-run",
+        "url": "https://your-host.example.com/integrations/slack/command",
+        "description": "Run drone-video analysis on a video URI",
+        "usage_hint": "<video_uri> [fps=5 sensor_id=cam1]",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": ["commands", "chat:write"]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": true,
+    "interactivity": {
+      "is_enabled": false
+    }
+  }
+}

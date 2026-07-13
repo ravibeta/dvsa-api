@@ -1,0 +1,459 @@
+{
+  "fps": 5,
+  "frames": [
+    {
+      "height": 480,
+      "index": 0,
+      "objects": [
+        {
+          "bbox": [
+            40.0,
+            60.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.945
+        },
+        {
+          "bbox": [
+            300.0,
+            220.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.8661
+        }
+      ],
+      "timestamp": 0.0,
+      "width": 640
+    },
+    {
+      "height": 480,
+      "index": 1,
+      "objects": [
+        {
+          "bbox": [
+            52.0,
+            62.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.8011
+        },
+        {
+          "bbox": [
+            297.0,
+            224.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.9366
+        }
+      ],
+      "timestamp": 0.2,
+      "width": 640
+    },
+    {
+      "height": 480,
+      "index": 2,
+      "objects": [
+        {
+          "bbox": [
+            64.0,
+            64.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.9409
+        },
+        {
+          "bbox": [
+            294.0,
+            228.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.8873
+        },
+        {
+          "bbox": [
+            429.8,
+            40.29,
+            50.0,
+            35.0
+          ],
+          "class_name": "truck",
+          "confidence": 0.7033
+        }
+      ],
+      "timestamp": 0.4,
+      "width": 640
+    },
+    {
+      "height": 480,
+      "index": 3,
+      "objects": [
+        {
+          "bbox": [
+            76.0,
+            66.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.8355
+        },
+        {
+          "bbox": [
+            291.0,
+            232.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.8046
+        }
+      ],
+      "timestamp": 0.6,
+      "width": 640
+    },
+    {
+      "height": 480,
+      "index": 4,
+      "objects": [
+        {
+          "bbox": [
+            88.0,
+            68.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.9183
+        },
+        {
+          "bbox": [
+            288.0,
+            236.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.8519
+        }
+      ],
+      "timestamp": 0.8,
+      "width": 640
+    },
+    {
+      "height": 480,
+      "index": 5,
+      "objects": [
+        {
+          "bbox": [
+            100.0,
+            70.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.8935
+        },
+        {
+          "bbox": [
+            285.0,
+            240.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.8924
+        }
+      ],
+      "timestamp": 1.0,
+      "width": 640
+    },
+    {
+      "height": 480,
+      "index": 6,
+      "objects": [
+        {
+          "bbox": [
+            112.0,
+            72.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.8223
+        },
+        {
+          "bbox": [
+            282.0,
+            244.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.8275
+        }
+      ],
+      "timestamp": 1.2,
+      "width": 640
+    },
+    {
+      "height": 480,
+      "index": 7,
+      "objects": [
+        {
+          "bbox": [
+            124.0,
+            74.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.8172
+        },
+        {
+          "bbox": [
+            279.0,
+            248.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.8022
+        },
+        {
+          "bbox": [
+            311.52,
+            463.15,
+            50.0,
+            35.0
+          ],
+          "class_name": "person",
+          "confidence": 0.5629
+        }
+      ],
+      "timestamp": 1.4,
+      "width": 640
+    },
+    {
+      "height": 480,
+      "index": 8,
+      "objects": [
+        {
+          "bbox": [
+            136.0,
+            76.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.8812
+        },
+        {
+          "bbox": [
+            276.0,
+            252.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.8699
+        }
+      ],
+      "timestamp": 1.6,
+      "width": 640
+    },
+    {
+      "height": 480,
+      "index": 9,
+      "objects": [
+        {
+          "bbox": [
+            148.0,
+            78.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.8902
+        },
+        {
+          "bbox": [
+            273.0,
+            256.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.8133
+        }
+      ],
+      "timestamp": 1.8,
+      "width": 640
+    },
+    {
+      "height": 480,
+      "index": 10,
+      "objects": [
+        {
+          "bbox": [
+            160.0,
+            80.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.8869
+        },
+        {
+          "bbox": [
+            270.0,
+            260.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.8404
+        }
+      ],
+      "timestamp": 2.0,
+      "width": 640
+    },
+    {
+      "height": 480,
+      "index": 11,
+      "objects": [
+        {
+          "bbox": [
+            172.0,
+            82.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.8835
+        },
+        {
+          "bbox": [
+            267.0,
+            264.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.8967
+        }
+      ],
+      "timestamp": 2.2,
+      "width": 640
+    },
+    {
+      "height": 480,
+      "index": 12,
+      "objects": [
+        {
+          "bbox": [
+            184.0,
+            84.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.8722
+        },
+        {
+          "bbox": [
+            264.0,
+            268.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.8533
+        },
+        {
+          "bbox": [
+            159.46,
+            448.09,
+            50.0,
+            35.0
+          ],
+          "class_name": "car",
+          "confidence": 0.6407
+        }
+      ],
+      "timestamp": 2.4,
+      "width": 640
+    },
+    {
+      "height": 480,
+      "index": 13,
+      "objects": [
+        {
+          "bbox": [
+            196.0,
+            86.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.8795
+        },
+        {
+          "bbox": [
+            261.0,
+            272.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.8029
+        }
+      ],
+      "timestamp": 2.6,
+      "width": 640
+    },
+    {
+      "height": 480,
+      "index": 14,
+      "objects": [
+        {
+          "bbox": [
+            208.0,
+            88.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "car",
+          "confidence": 0.8762
+        },
+        {
+          "bbox": [
+            258.0,
+            276.0,
+            40.0,
+            30.0
+          ],
+          "class_name": "person",
+          "confidence": 0.8009
+        }
+      ],
+      "timestamp": 2.8,
+      "width": 640
+    }
+  ],
+  "height": 480,
+  "schema": "dvsa-synthetic-video/1",
+  "seed": 1234,
+  "width": 640
+}
