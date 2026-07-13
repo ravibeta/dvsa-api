@@ -4,6 +4,19 @@ All notable changes to `agent_kits/` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **DVSA bridge adapters** (`common/adapters.py`): `DvsaVideoUploadAdapter` and
+  `DvsaChatAnalyzer` invoke the existing `apps/videos/views.py` views in-process
+  (`VideoUploadAPIView` — Azure upload + signal-driven indexing; `ChatAPIView` —
+  agentic RAG synthesis), reusing their built-in smarts instead of the offline
+  reference codepaths. Django/DRF/Azure are imported lazily so the package stays
+  offline-importable.
+- `run_pipeline` gains opt-in `ingestor`/`analyzer`/`query` hooks (default `None`,
+  offline behaviour unchanged) to surface the ingestion payload and agentic answer in
+  `RunOutput.summary`.
+
 ## [0.1.0] — 2026-07-12
 
 ### Added

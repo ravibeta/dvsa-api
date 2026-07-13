@@ -239,6 +239,129 @@ def _to_seconds(value: Optional[str]) -> Optional[float]:
         return None
 
 
+# --------------------------------------------------------------------------- #
+# DVSA bridge adapters — optionally leverage the existing DRF views.
+# --------------------------------------------------------------------------- #
+# Rather than the offline reference codepaths above, these adapters invoke the
+# production ``apps.videos.views`` **in-process** so the kits reuse their built-in
+# smarts: ``VideoUploadAPIView`` (Azure blob upload + SAS + VideoEntity registration
+# + the signal-driven ingestion/indexing pipeline) and ``ChatAPIView`` (agentic RAG
+# synthesis over indexed frames via ``env.ask``). Django/DRF/Azure are imported
+# lazily, so importing ``agent_kits`` stays dependency-free and offline-safe; these
+# adapters are opt-in and only pull those deps when actually used.
+
+
+def _default_view_caller(view_cls, method, data, *, user=None, path="/"):
+    """Invoke a DRF ``APIView`` in-process; return ``(status_code, response_data)``.
+
+    Uses DRF's request factory so the view runs with its real parsing, permissions
+    and response handling — i.e. we genuinely exercise the existing view, not a copy.
+    """
+    from rest_framework.test import (  # noqa: PLC0415
+        APIRequestFactory, force_authenticate)
+    factory = APIRequestFactory()
+    # A file-like value means a multipart upload; otherwise send JSON.
+    fmt = "multipart" if any(hasattr(v, "read") for v in data.values()) else "json"
+    request = getattr(factory, method.lower())(path, data, format=fmt)
+    if user is not None:
+        force_authenticate(request, user=user)
+    response = view_cls.as_view()(request)
+    return response.status_code, getattr(response, "data", None)
+
+
+def _load_video_upload_view():
+    from apps.videos.views import VideoUploadAPIView  # noqa: PLC0415
+    return VideoUploadAPIView
+
+
+def _load_chat_view():
+    from apps.videos.views import ChatAPIView  # noqa: PLC0415
+    return ChatAPIView
+
+
+class DvsaVideoUploadAdapter:
+    """``VideoFetcher`` that ingests through the existing ``VideoUploadAPIView``.
+
+    :meth:`ingest_video` uploads the local file via the production view, reusing its
+    Azure blob upload, SAS generation, ``VideoEntity`` registration and the
+    signal-driven indexing pipeline, and returns the created VideoEntity payload.
+    :meth:`fetch_video` resolves the local path for downstream frame extraction and,
+    when ``ingest_on_fetch`` is set, ingests first so a single pipeline run both
+    indexes (Azure) and analyses (local) the video.
+
+    ``account_id``/``user`` may be passed explicitly or taken from ``DVSA_ACCOUNT_ID``.
+    ``view``/``view_caller`` are injection seams for testing without Django/DRF.
+    """
+
+    def __init__(self, *, account_id=None, user=None, view=None, view_caller=None,
+                 ingest_on_fetch=False, path="/api/videos/upload-video/"):
+        self.account_id = account_id or os.environ.get("DVSA_ACCOUNT_ID")
+        self.user = user
+        self._view = view
+        self._view_caller = view_caller or _default_view_caller
+        self.ingest_on_fetch = ingest_on_fetch
+        self.path = path
+        self._local = LocalVideoFetcher()
+
+    def ingest_video(self, video_uri, *, account_id=None, user=None):
+        """Upload + register + index ``video_uri`` via ``VideoUploadAPIView``."""
+        account_id = account_id or self.account_id
+        if not account_id:
+            raise ValueError(
+                "DvsaVideoUploadAdapter requires an account_id (arg or DVSA_ACCOUNT_ID)")
+        local_path = self._local.fetch_video(video_uri)
+        view_cls = self._view or _load_video_upload_view()
+        with open(local_path, "rb") as handle:
+            status_code, data = self._view_caller(
+                view_cls, "post",
+                {"file": handle, "account_id": account_id},
+                user=user or self.user, path=self.path)
+        if status_code and status_code >= 400:
+            raise RuntimeError(f"VideoUploadAPIView failed ({status_code}): {data}")
+        return {"status_code": status_code, "video_entity": data}
+
+    def fetch_video(self, video_uri):
+        if self.ingest_on_fetch:
+            self.ingest_video(video_uri)
+        return self._local.fetch_video(video_uri)
+
+
+class DvsaChatAnalyzer:
+    """Answer a query over an account's indexed frames via ``ChatAPIView``.
+
+    Leverages the production chat view's agentic synthesis (``env.ask``) instead of
+    reimplementing retrieval. Chat returns synthesized *text* (not bounding boxes), so
+    this is an analyzer — plug it into :func:`run_pipeline` via ``analyzer=``/``query=``
+    to attach the answer to the run's summary.
+    """
+
+    def __init__(self, *, account_id=None, user=None, view=None, view_caller=None,
+                 path="/api/videos/chat/"):
+        self.account_id = account_id or os.environ.get("DVSA_ACCOUNT_ID")
+        self.user = user
+        self._view = view
+        self._view_caller = view_caller or _default_view_caller
+        self.path = path
+
+    def ask(self, query, *, account_id=None, user=None):
+        """Return ``{'answer': text, ...}`` synthesised by ``ChatAPIView``."""
+        account_id = account_id or self.account_id
+        if not account_id:
+            raise ValueError(
+                "DvsaChatAnalyzer requires an account_id (arg or DVSA_ACCOUNT_ID)")
+        if not query:
+            raise ValueError("query is required")
+        view_cls = self._view or _load_chat_view()
+        status_code, data = self._view_caller(
+            view_cls, "put",
+            {"account_id": account_id, "query": query},
+            user=user or self.user, path=self.path)
+        if status_code and status_code >= 400:
+            raise RuntimeError(f"ChatAPIView failed ({status_code}): {data}")
+        answer = data.get("text") if isinstance(data, dict) else None
+        return {"status_code": status_code, "answer": answer, "raw": data}
+
+
 __all__ = [
     "Frame",
     "VideoFetcher",
@@ -249,4 +372,6 @@ __all__ = [
     "SyntheticFrameExtractor",
     "MockInferenceAdapter",
     "LocalFileStorageAdapter",
+    "DvsaVideoUploadAdapter",
+    "DvsaChatAnalyzer",
 ]
