@@ -14,13 +14,17 @@ without FastAPI installed. FastAPI itself is imported lazily so the module stays
 importable in minimal environments; the HTTP app is built by :func:`create_app`.
 """
 
-from __future__ import annotations
+# NOTE: this module deliberately does NOT use ``from __future__ import annotations``.
+# FastAPI resolves endpoint parameter annotations at route-registration time; with
+# stringized (PEP 563) annotations it cannot resolve the FastAPI types imported
+# locally inside ``create_app`` (e.g. ``Request``), so it would misclassify the body.
+# Eager annotations keep the runner's HTTP contract correct.
 
 import os
 import signal
 import threading
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
 from ..common import (
     LocalFileStorageAdapter,
@@ -161,17 +165,9 @@ def request_shutdown(*_: Any) -> None:
 # --------------------------------------------------------------------------- #
 def create_app() -> Any:
     """Build and return the FastAPI app. Requires ``fastapi`` to be installed."""
-    from fastapi import Depends, FastAPI, Header, HTTPException  # noqa: PLC0415
+    from fastapi import Depends, FastAPI, Header, HTTPException, Request  # noqa: PLC0415
     from fastapi.responses import JSONResponse, PlainTextResponse  # noqa: PLC0415
-    from pydantic import BaseModel as PydModel  # noqa: PLC0415
-
-    class RunRequest(PydModel):
-        video_uri: str
-        sensor_id: Optional[str] = None
-        agent_id: Optional[str] = None
-        run_id: Optional[str] = None
-        time_window: Optional[Dict[str, Any]] = None
-        processing_flags: Dict[str, Any] = {}
+    from starlette.concurrency import run_in_threadpool  # noqa: PLC0415
 
     def require_api_key(authorization: str = Header(default="")) -> None:
         expected = os.environ.get("DVSA_API_KEY")
@@ -185,21 +181,29 @@ def create_app() -> Any:
 
     app = FastAPI(title="DVSA Cloud Autonomous Runner", version="0.1.0")
 
+    # The body is parsed and validated through the shared ``RunInput`` schema rather
+    # than a FastAPI-declared model: the module uses ``from __future__ import
+    # annotations``, which turns declared model params into string forward-refs that
+    # FastAPI cannot resolve for a locally-defined class.
     @app.post("/run")
-    def run(req: RunRequest, _auth: None = Depends(require_api_key)) -> JSONResponse:
+    async def run(request: Request,
+                  _auth: None = Depends(require_api_key)) -> JSONResponse:
         if _State.draining:
             raise HTTPException(status_code=503, detail="server draining")
         acquired = _SEMAPHORE.acquire(timeout=30)
         if not acquired:
             raise HTTPException(status_code=429, detail="runner at capacity")
         try:
-            run_input = RunInput.model_validate(req.model_dump())
-            output = execute_run(run_input)
+            try:
+                payload = await request.json()
+                run_input = RunInput.model_validate(payload)
+            except Exception as exc:  # noqa: BLE001 - malformed/invalid body
+                raise HTTPException(status_code=422, detail=f"invalid request: {exc}")
+            try:
+                output = await run_in_threadpool(execute_run, run_input)
+            except Exception as exc:  # noqa: BLE001 - surface as 500 with a message
+                raise HTTPException(status_code=500, detail=str(exc))
             return JSONResponse(status_code=200, content=output.model_dump())
-        except HTTPException:
-            raise
-        except Exception as exc:  # noqa: BLE001 - surface as 500 with a message
-            raise HTTPException(status_code=500, detail=str(exc))
         finally:
             _SEMAPHORE.release()
 
