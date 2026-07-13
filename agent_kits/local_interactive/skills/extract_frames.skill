@@ -1,0 +1,13 @@
+# Skill: extract_frames
+# .skill files are YAML documents loaded dynamically by agent_harness.py. `step`
+# names a built-in pipeline stage the harness knows how to run.
+name: extract_frames
+description: Sample frames from a drone video at a bounded frame rate.
+step: extract_frames
+destructive: false
+inputs:
+  video_uri: "URI of the source video (file:// or path; .json manifest offline)"
+  fps: "Frames per second to sample (default 1.0, capped by guardrails)"
+prompt_example: >
+  Extract frames from file:///data/flight.json at 5 fps and tell me how many frames
+  fall inside 00:00:10–00:00:20.

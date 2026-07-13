@@ -1,0 +1,40 @@
+# Local Interactive agent profile.
+#
+# Declares the agent identity, the autonomy controls that govern how freely it may
+# act, and the always-ask gating that forces explicit confirmation before any
+# destructive or outward-facing action. The harness (agent_harness.py) reads this
+# file and enforces it at runtime.
+
+agent_id: local-interactive
+version: 0.1.0
+description: >
+  Guides an operator through the drone-video analysis pipeline locally, one skill
+  at a time, with safe defaults and explicit confirmation for risky steps.
+
+autonomy:
+  # One of: dry_run | confirm | auto
+  #   dry_run  -> describe actions, never execute (safest default)
+  #   confirm  -> execute read-only steps freely, prompt before gated actions
+  #   auto     -> execute everything permitted below without prompting
+  default_mode: confirm
+  # Hard ceiling: the harness will never exceed this mode even if asked to.
+  max_mode: auto
+  # Skills the agent may run without individual approval in `auto` mode.
+  allow_skills:
+    - extract_frames
+    - detect_objects
+    - summarize_timeline
+
+# Actions that ALWAYS require explicit human confirmation, regardless of mode
+# (except pure dry_run, which never executes). These are destructive or
+# outward-facing and must never run silently.
+always_ask:
+  - write_output        # persists artefacts to storage (overwrites possible)
+  - delete_artifacts    # removes stored artefacts
+  - publish_results     # sends results to an external system
+
+# Guardrails applied to every run.
+guardrails:
+  max_frames: 5000            # refuse absurd frame counts (cost control)
+  max_fps: 30                 # cap extraction rate
+  require_local_paths: true   # offline-first: reject remote URIs by default

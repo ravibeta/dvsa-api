@@ -1,0 +1,55 @@
+# GitHub Actions trigger EXAMPLE — launch a Cloud Autonomous run.
+#
+# This is a *reference* workflow (kept under agent_kits/, NOT in .github/workflows/
+# so it does not auto-run). Copy it into `.github/workflows/` to enable. It triggers
+# on manual dispatch or on a `repository_dispatch` event of type `dvsa-run`, then
+# POSTs a RunInput to your cloud runner.
+#
+# Secrets are read from GitHub Actions secrets — never hard-coded. Prefer OIDC
+# federation to mint short-lived credentials over a long-lived DVSA_API_KEY.
+
+name: DVSA Cloud Run (trigger)
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_uri:
+        description: "Video URI to process (file://, s3://, ...)"
+        required: true
+      fps:
+        description: "Frames per second to sample"
+        required: false
+        default: "5"
+  repository_dispatch:
+    types: [dvsa-run]
+
+permissions:
+  contents: read
+  id-token: write   # enable OIDC for short-lived cloud credentials
+
+jobs:
+  trigger-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve inputs
+        id: inputs
+        run: |
+          echo "video_uri=${{ github.event.inputs.video_uri || github.event.client_payload.video_uri }}" >> "$GITHUB_OUTPUT"
+          echo "fps=${{ github.event.inputs.fps || github.event.client_payload.fps || '5' }}" >> "$GITHUB_OUTPUT"
+
+      - name: POST run to Cloud Autonomous runner
+        env:
+          RUNNER_URL: ${{ secrets.DVSA_RUNNER_URL }}
+          DVSA_API_KEY: ${{ secrets.DVSA_API_KEY }}
+        run: |
+          curl -sf -X POST "$RUNNER_URL/run" \
+            -H "Authorization: Bearer $DVSA_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"video_uri\":\"${{ steps.inputs.outputs.video_uri }}\",\"processing_flags\":{\"fps\":${{ steps.inputs.outputs.fps }}}}" \
+            | tee run_result.json
+
+      - name: Upload run result
+        uses: actions/upload-artifact@v4
+        with:
+          name: dvsa-run-result
+          path: run_result.json

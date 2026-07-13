@@ -1,0 +1,92 @@
+# Kubernetes deployment for the Cloud Autonomous runner.
+#
+# Secrets are injected via a Secret reference (never baked into the image or a
+# ConfigMap). The container runs as a non-root, read-only-rootfs, least-privilege
+# workload. Adjust image/registry, resources, and replica count per environment.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dvsa-agent-runner
+  labels:
+    app: dvsa-agent-runner
+    kit: cloud-autonomous
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dvsa-agent-runner
+  template:
+    metadata:
+      labels:
+        app: dvsa-agent-runner
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Give in-flight runs time to finish on SIGTERM (graceful drain).
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+        - name: runner
+          image: ghcr.io/ravibeta/dvsa-agent-runner:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: RUNNER_MAX_PARALLELISM
+              value: "4"
+            - name: STORAGE_BUCKET
+              value: "s3://dvsa-runs"          # non-secret config
+          # Secrets come from a Secret object — created out-of-band, never committed.
+          envFrom:
+            - secretRef:
+                name: dvsa-runner-secrets       # DVSA_API_KEY, MODEL_ENDPOINT, ...
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dvsa-agent-runner
+  labels:
+    app: dvsa-agent-runner
+spec:
+  selector:
+    app: dvsa-agent-runner
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

@@ -1,0 +1,11 @@
+# Skill: summarize_timeline
+name: summarize_timeline
+description: Aggregate detections into a canonical, deterministic timeline summary.
+step: summarize_timeline
+destructive: false
+inputs:
+  video_uri: "URI of the source video"
+  fps: "Frames per second to sample before inference"
+prompt_example: >
+  Give me a timeline summary of file:///data/flight.json: total detections, counts
+  by class, and the time span covered.
