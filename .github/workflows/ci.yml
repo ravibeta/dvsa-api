@@ -47,4 +47,7 @@ jobs:
       - name: Run tests
         env:
           SECRET_KEY: ci-secret-key
+          # Mock-only placeholder so the Qwen tool tests exercise the configured
+          # path; all network calls are mocked (requests_mock), never live.
+          DVSA_QWEN_API_KEY: ci-mock-key
         run: pytest

@@ -19,6 +19,15 @@ def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     return val if val not in ("", None) else default
 
 
+def _as_bool(val: object, default: bool = True) -> bool:
+    """Interpret a settings/env value as a boolean (default when unset)."""
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    return str(val).strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass(frozen=True)
 class AzureEnvironmentConfig:
     """Resolved configuration for one Azure environment.
@@ -95,6 +104,16 @@ class AzureEnvironmentConfig:
     perplexity_chat_api_url: str = "https://api.perplexity.ai/chat/completions"
     perplexity_geo_api_key: Optional[str] = None
     perplexity_geo_api_url: str = "https://api.perplexity.ai/v1/image/geolocation"
+
+    # Qwen VLM tool (Azure AI Foundry, OpenAI-compatible chat completions).
+    # ``qwen_enabled`` is the global on/off — when False the agent tool set is
+    # exactly what it was before Qwen (backward compatible).
+    qwen_enabled: bool = True
+    qwen_api_key: Optional[str] = None
+    qwen_endpoint: str = (
+        "https://found-vision-1.services.ai.azure.com/openai/v1/chat/completions"
+    )
+    qwen_model: str = "qwen--qwen3.5-0.8b"
 
     # Sample object/scene URIs.
     sample_object_uri: str = ""
@@ -184,6 +203,13 @@ class AzureEnvironmentConfig:
                 "PERPLEXITY_GEO_API_URL",
                 "https://api.perplexity.ai/v1/image/geolocation",
             ),
+            qwen_enabled=_as_bool(g("DVSA_QWEN_ENABLED", True)),
+            qwen_api_key=g("DVSA_QWEN_API_KEY"),
+            qwen_endpoint=g(
+                "DVSA_QWEN_ENDPOINT",
+                "https://found-vision-1.services.ai.azure.com/openai/v1/chat/completions",
+            ),
+            qwen_model=g("DVSA_QWEN_MODEL", "qwen--qwen3.5-0.8b"),
             sample_object_uri=g("SAMPLE_OBJECT_URI", ""),
             sample_scene_uri=g("SAMPLE_SCENE_URI", ""),
         )
@@ -252,6 +278,13 @@ class AzureEnvironmentConfig:
                 "PERPLEXITY_GEO_API_URL",
                 "https://api.perplexity.ai/v1/image/geolocation",
             ),
+            qwen_enabled=_as_bool(_env("DVSA_QWEN_ENABLED", "true")),
+            qwen_api_key=_env("DVSA_QWEN_API_KEY"),
+            qwen_endpoint=_env(
+                "DVSA_QWEN_ENDPOINT",
+                "https://found-vision-1.services.ai.azure.com/openai/v1/chat/completions",
+            ),
+            qwen_model=_env("DVSA_QWEN_MODEL", "qwen--qwen3.5-0.8b"),
             sample_object_uri=_env("SAMPLE_OBJECT_URI", ""),
             sample_scene_uri=_env("SAMPLE_SCENE_URI", ""),
         )

@@ -289,6 +289,18 @@ PERPLEXITY_GEO_API_URL = os.environ.get(
     "PERPLEXITY_GEO_API_URL", "https://api.perplexity.ai/v1/image/geolocation"
 )
 
+# Qwen VLM tool (Azure AI Foundry, OpenAI-compatible chat completions).
+# Registered as a peer function-tool alongside Perplexity/AI-Search retrieval.
+# DVSA_QWEN_ENABLED is the global on/off: on by default; set it falsy to keep the
+# agent tool set exactly as it was before Qwen (backward compatible).
+DVSA_QWEN_ENABLED = os.environ.get("DVSA_QWEN_ENABLED", "true")
+DVSA_QWEN_API_KEY = os.environ.get("DVSA_QWEN_API_KEY")
+DVSA_QWEN_ENDPOINT = os.environ.get(
+    "DVSA_QWEN_ENDPOINT",
+    "https://found-vision-1.services.ai.azure.com/openai/v1/chat/completions",
+)
+DVSA_QWEN_MODEL = os.environ.get("DVSA_QWEN_MODEL", "qwen--qwen3.5-0.8b")
+
 # Sample object/scene image URIs used by object-in-scene search.
 SAMPLE_OBJECT_URI = os.environ.get("SAMPLE_OBJECT_URI", "")
 SAMPLE_SCENE_URI = os.environ.get("SAMPLE_SCENE_URI", "")
