@@ -305,17 +305,60 @@ def get_scene_uri(query_text, account_id, video_id=None, frame_number=None):
     return None
 
 
+def ask_qwen_vlm(query_text, account_id="2", video_id=None):
+    """Query the Azure-hosted Qwen VLM (OpenAI-compatible chat) as a tool.
+
+    Registered as a peer function-tool alongside :func:`ask_perplexity` and the
+    AI-Search retrieval so the agent can invoke it like any other tool. Reads the
+    key from ``DVSA_QWEN_API_KEY`` (via settings) and is gated by the global
+    ``DVSA_QWEN_ENABLED`` flag; when disabled or unconfigured it returns a benign
+    ``"No comment."`` so the pipeline stays runnable and backward compatible.
+    """
+    import requests  # noqa: PLC0415
+
+    cfg = _cfg()
+    if not cfg.qwen_enabled or not cfg.qwen_api_key:
+        logger.info("Qwen not enabled/configured; returning no comment")
+        return "No comment."
+    headers = {
+        "Authorization": f"Bearer {cfg.qwen_api_key}",
+        "accept": "application/json", "content-type": "application/json",
+    }
+    payload = {
+        "model": cfg.qwen_model,
+        "messages": [
+            {"role": "system",
+             "content": "You are an aerial drone image and vision analyst."},
+            {"role": "user", "content": query_text},
+        ],
+        "temperature": 0.6, "top_p": 0.95, "stream": False,
+    }
+    try:
+        resp = requests.post(cfg.qwen_endpoint, headers=headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Qwen request failed: %s", exc)
+        return "No comment."
+
+
 # --------------------------------------------------------------------------
 # Foundry FunctionTool registries (callables exposed to agents)
 # --------------------------------------------------------------------------
 def analyzer_functions() -> Set[Callable[..., Any]]:
-    return {
+    fns: Set[Callable[..., Any]] = {
         download_image, count_object_occurrences, count_matches,
         get_matched_descriptors, cluster_by_similarity, count_multiple_matches,
         agentic_retrieval, get_object_uri, get_scene_uri, get_sas_url_template,
         ask_perplexity,
     }
+    if _cfg().qwen_enabled:
+        fns.add(ask_qwen_vlm)
+    return fns
 
 
 def image_user_functions() -> Set[Callable[..., Any]]:
-    return {agentic_retrieval, ask_perplexity}
+    fns: Set[Callable[..., Any]] = {agentic_retrieval, ask_perplexity}
+    if _cfg().qwen_enabled:
+        fns.add(ask_qwen_vlm)
+    return fns
