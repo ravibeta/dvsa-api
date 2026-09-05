@@ -114,6 +114,11 @@ class AzureEnvironmentConfig:
         "https://found-vision-1.services.ai.azure.com/openai/v1/chat/completions"
     )
     qwen_model: str = "qwen--qwen3.5-0.8b"
+    # Backend selector: "azure" hits the Foundry endpoint above (default,
+    # unchanged behaviour); "onnx" runs Qwen3.5-0.8B locally via onnxruntime-genai
+    # so dvsa-api can serve queries standalone, with no Azure dependency.
+    qwen_backend: str = "azure"
+    qwen_onnx_model_path: str = ""
 
     # Sample object/scene URIs.
     sample_object_uri: str = ""
@@ -210,6 +215,8 @@ class AzureEnvironmentConfig:
                 "https://found-vision-1.services.ai.azure.com/openai/v1/chat/completions",
             ),
             qwen_model=g("DVSA_QWEN_MODEL", "qwen--qwen3.5-0.8b"),
+            qwen_backend=str(g("DVSA_QWEN_BACKEND", "azure")).strip().lower(),
+            qwen_onnx_model_path=g("DVSA_QWEN_ONNX_MODEL_PATH", ""),
             sample_object_uri=g("SAMPLE_OBJECT_URI", ""),
             sample_scene_uri=g("SAMPLE_SCENE_URI", ""),
         )
@@ -285,6 +292,8 @@ class AzureEnvironmentConfig:
                 "https://found-vision-1.services.ai.azure.com/openai/v1/chat/completions",
             ),
             qwen_model=_env("DVSA_QWEN_MODEL", "qwen--qwen3.5-0.8b"),
+            qwen_backend=str(_env("DVSA_QWEN_BACKEND", "azure")).strip().lower(),
+            qwen_onnx_model_path=_env("DVSA_QWEN_ONNX_MODEL_PATH", "") or "",
             sample_object_uri=_env("SAMPLE_OBJECT_URI", ""),
             sample_scene_uri=_env("SAMPLE_SCENE_URI", ""),
         )

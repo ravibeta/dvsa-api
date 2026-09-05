@@ -22,3 +22,8 @@ onnxruntime>=1.16,<2.0
 
 # --- Ultralytics YOLO format (yolo adapter) -------------------------------
 # ultralytics>=8.0   # pulls in torch
+
+# --- Local Qwen3.5-0.8B text generation (core/azure/qwen_onnx.py) ----------
+# Needed only to run the Qwen tool's standalone "onnx" backend
+# (DVSA_QWEN_BACKEND=onnx). Tests mock it, so it stays opt-in.
+# onnxruntime-genai>=0.4
