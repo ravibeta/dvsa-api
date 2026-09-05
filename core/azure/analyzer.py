@@ -306,19 +306,32 @@ def get_scene_uri(query_text, account_id, video_id=None, frame_number=None):
 
 
 def ask_qwen_vlm(query_text, account_id="2", video_id=None):
-    """Query the Azure-hosted Qwen VLM (OpenAI-compatible chat) as a tool.
+    """Query Qwen3.5 as a tool — via Azure AI Foundry or a local ONNX model.
 
     Registered as a peer function-tool alongside :func:`ask_perplexity` and the
-    AI-Search retrieval so the agent can invoke it like any other tool. Reads the
-    key from ``DVSA_QWEN_API_KEY`` (via settings) and is gated by the global
-    ``DVSA_QWEN_ENABLED`` flag; when disabled or unconfigured it returns a benign
-    ``"No comment."`` so the pipeline stays runnable and backward compatible.
+    AI-Search retrieval so the agent can invoke it like any other tool. Gated by
+    the global ``DVSA_QWEN_ENABLED`` flag. The backend is selected by
+    ``DVSA_QWEN_BACKEND``: ``"azure"`` (default) calls the Foundry endpoint with
+    the key from ``DVSA_QWEN_API_KEY``; ``"onnx"`` runs Qwen3.5-0.8B locally via
+    ``onnxruntime-genai`` (see :mod:`core.azure.qwen_onnx`) so dvsa-api can answer
+    standalone, with no Azure dependency. When disabled or unconfigured it returns
+    a benign ``"No comment."`` so the pipeline stays runnable and backward
+    compatible.
     """
+    cfg = _cfg()
+    if not cfg.qwen_enabled:
+        logger.info("Qwen not enabled; returning no comment")
+        return "No comment."
+
+    if cfg.qwen_backend == "onnx":
+        from .qwen_onnx import run_local_qwen  # noqa: PLC0415
+
+        return run_local_qwen(cfg.qwen_onnx_model_path, query_text)
+
     import requests  # noqa: PLC0415
 
-    cfg = _cfg()
-    if not cfg.qwen_enabled or not cfg.qwen_api_key:
-        logger.info("Qwen not enabled/configured; returning no comment")
+    if not cfg.qwen_api_key:
+        logger.info("Qwen not configured; returning no comment")
         return "No comment."
     headers = {
         "Authorization": f"Bearer {cfg.qwen_api_key}",

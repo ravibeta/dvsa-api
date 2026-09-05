@@ -35,9 +35,11 @@ what they were before), so the integration is fully backward compatible.
 | Setting / env var    | Default                                                                 | Meaning                                             |
 | -------------------- | ----------------------------------------------------------------------- | --------------------------------------------------- |
 | `DVSA_QWEN_ENABLED`  | `true`                                                                   | Global on/off. Set falsy (`0`/`false`/`no`/`off`) to disable Qwen entirely. |
-| `DVSA_QWEN_API_KEY`  | _(unset)_                                                               | API key for the Azure Foundry endpoint.             |
-| `DVSA_QWEN_ENDPOINT` | `https://found-vision-1.services.ai.azure.com/openai/v1/chat/completions` | OpenAI-compatible chat-completions endpoint.        |
-| `DVSA_QWEN_MODEL`    | `qwen--qwen3.5-0.8b`                                                     | Model id passed in the request body.                |
+| `DVSA_QWEN_BACKEND`  | `azure`                                                                 | `azure` calls the Foundry endpoint; `onnx` runs Qwen3.5-0.8B locally (see below). |
+| `DVSA_QWEN_API_KEY`  | _(unset)_                                                               | API key for the Azure Foundry endpoint (`azure` backend). |
+| `DVSA_QWEN_ENDPOINT` | `https://found-vision-1.services.ai.azure.com/openai/v1/chat/completions` | OpenAI-compatible chat-completions endpoint (`azure` backend). |
+| `DVSA_QWEN_MODEL`    | `qwen--qwen3.5-0.8b`                                                     | Model id passed in the request body (`azure` backend). |
+| `DVSA_QWEN_ONNX_MODEL_PATH` | _(unset)_                                                        | Local Qwen3.5-0.8B ONNX model directory (`onnx` backend). |
 
 When `DVSA_QWEN_ENABLED` is off, or when `DVSA_QWEN_API_KEY` is unset, `ask_qwen_vlm`
 returns a benign `"No comment."` and makes **no network call** — matching how the
@@ -52,6 +54,32 @@ export DVSA_QWEN_ENABLED=true
 export DVSA_QWEN_ENDPOINT="https://found-vision-1.services.ai.azure.com/openai/v1/chat/completions"
 export DVSA_QWEN_MODEL="qwen--qwen3.5-0.8b"
 ```
+
+## Standalone / local mode (ONNX, no Azure)
+
+For local deployments that must run **without any Azure dependency**, set the
+backend to `onnx` and point at a `Qwen3.5-0.8B` model exported to ONNX. The tool
+then runs inference on the box via
+[`onnxruntime-genai`](https://github.com/microsoft/onnxruntime-genai) instead of
+calling the Foundry endpoint — no key, no network:
+
+```bash
+export DVSA_QWEN_BACKEND=onnx
+export DVSA_QWEN_ONNX_MODEL_PATH="/models/qwen3.5-0.8b-onnx"
+pip install onnxruntime-genai   # opt-in; only needed for real local inference
+```
+
+The local runner lives in `core/azure/qwen_onnx.py`. It uses the Qwen ChatML
+template with the recommended generation settings (`temperature=0.6`,
+`top_p=0.95`) and returns the assistant reply, which the chat agent folds into the
+consolidated answer exactly as with the Azure backend — the routing is invisible
+to the rest of the pipeline. If the model path is unset, `onnxruntime-genai` is not
+installed, or generation fails, the tool degrades to `"No comment."` just like the
+Azure path, so the pipeline stays runnable while a box is still being provisioned.
+
+The `onnxruntime-genai` interaction is encapsulated behind an injectable
+`generator_factory`, so the routing and fallback logic are covered by fully offline
+tests — no ONNX weights or runtime are required in CI.
 
 ## Request / response
 
@@ -85,11 +113,13 @@ which the chat agent merges into the consolidated reply delivered to the user.
 
 ## Testing
 
-`tests/test_qwen_tool.py` runs fully offline. It mocks the endpoint with
-`requests_mock` to assert the request contract (endpoint, bearer auth, message
-shape, generation params) and response parsing, verifies graceful fallback on HTTP
-errors and timeouts, and asserts the global flag toggles tool registration —
-including that the tool sets are unchanged when Qwen is disabled.
+`tests/test_qwen_tool.py` runs fully offline. It mocks the network with
+`unittest.mock` (no extra test dependency) to assert the Azure request contract
+(endpoint, bearer auth, message shape, generation params) and response parsing,
+verifies graceful fallback on HTTP errors and timeouts, checks that the `onnx`
+backend routes to the local runner (with no HTTP call) and degrades to
+`"No comment."` when unconfigured, and asserts the global flag toggles tool
+registration — including that the tool sets are unchanged when Qwen is disabled.
 
 CI (`.github/workflows/ci.yml`) sets a mock-only `DVSA_QWEN_API_KEY` so the
 configured path is exercised without any live call.

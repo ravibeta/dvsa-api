@@ -300,6 +300,11 @@ DVSA_QWEN_ENDPOINT = os.environ.get(
     "https://found-vision-1.services.ai.azure.com/openai/v1/chat/completions",
 )
 DVSA_QWEN_MODEL = os.environ.get("DVSA_QWEN_MODEL", "qwen--qwen3.5-0.8b")
+# Backend for the Qwen tool: "azure" (default) calls the Foundry endpoint above;
+# "onnx" runs Qwen3.5-0.8B locally via onnxruntime-genai for standalone, Azure-free
+# deployments, loading the model from DVSA_QWEN_ONNX_MODEL_PATH.
+DVSA_QWEN_BACKEND = os.environ.get("DVSA_QWEN_BACKEND", "azure")
+DVSA_QWEN_ONNX_MODEL_PATH = os.environ.get("DVSA_QWEN_ONNX_MODEL_PATH", "")
 
 # Sample object/scene image URIs used by object-in-scene search.
 SAMPLE_OBJECT_URI = os.environ.get("SAMPLE_OBJECT_URI", "")
