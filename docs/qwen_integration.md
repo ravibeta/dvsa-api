@@ -81,6 +81,49 @@ The `onnxruntime-genai` interaction is encapsulated behind an injectable
 `generator_factory`, so the routing and fallback logic are covered by fully offline
 tests — no ONNX weights or runtime are required in CI.
 
+## Baseline comparison endpoint (`/baseline-test`, Ollama)
+
+To compare the agentic chat answer against a **raw** VLM answer, there is a
+peer of the chat endpoint that bypasses all DVSA agentic/RAG synthesis and
+returns only what a locally hosted `qwen2.5vl:7b` says via
+[Ollama](https://ollama.com):
+
+```
+PUT /api/v1/videos/baseline-test/     (IsAuthenticated, same as chat/)
+form-data: account_id, query, image (optional)
+→ {"text": "<qwen2.5vl:7b answer>", "imageUrl": null, "downloadUrl": null}
+```
+
+It takes the **same request and returns the same response shape** as
+`PUT /api/v1/videos/videos/chat/`, so the two answers drop straight into one
+comparison harness — the only difference is that `baseline-test` sends the
+question (and optional image) directly to the model instead of running the
+agent. The call reproduces `local-serve-and-query-qwen.py`
+(`ollama.Client(host).chat(model="qwen2.5vl:7b", ...)`, deterministic
+`temperature=0.0`, `num_ctx=8192`) in `core/azure/qwen_ollama.py`.
+
+Provision the local model, then point the endpoint at it:
+
+```bash
+ollama pull qwen2.5vl:7b
+export OLLAMA_HOST="127.0.0.1:8848" && ollama serve   # in its own shell
+export DVSA_OLLAMA_HOST="http://localhost:8848"       # default
+export DVSA_OLLAMA_QWEN_MODEL="qwen2.5vl:7b"          # default
+pip install ollama                                    # opt-in; only for real inference
+```
+
+| Setting / env var         | Default                  | Meaning                                             |
+| ------------------------- | ------------------------ | --------------------------------------------------- |
+| `DVSA_OLLAMA_HOST`        | `http://localhost:8848`  | Base URL of the local Ollama server.                |
+| `DVSA_OLLAMA_QWEN_MODEL`  | `qwen2.5vl:7b`           | Ollama model tag served at `/baseline-test`.        |
+
+If Ollama is unreachable, the `ollama` package is missing, or generation fails,
+the endpoint degrades to `"No comment."` — like the Azure and ONNX paths — so it
+stays callable while a box is still being provisioned. The Ollama interaction is
+encapsulated behind an injectable `client_factory`, so the routing and fallback
+logic are covered by fully offline tests (`tests/test_baseline_test.py`), with no
+Ollama server or package required in CI.
+
 ## Request / response
 
 The tool sends an OpenAI-style chat request with the recommended generation

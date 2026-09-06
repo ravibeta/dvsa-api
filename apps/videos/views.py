@@ -140,3 +140,38 @@ class ChatAPIView(APIView):
         except Exception as exc:  # noqa: BLE001
             logger.exception("chat failed")
             return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class BaselineTestAPIView(APIView):
+    """Raw ``qwen2.5vl:7b`` (Ollama) answer — a baseline peer of ``chat/``.
+
+    Mirrors :class:`ChatAPIView`'s request (``account_id`` + ``query``, plus an
+    optional ``image`` upload) and response shape, but bypasses all DVSA
+    agentic/RAG synthesis: the question (and image) go straight to a locally
+    hosted ``qwen2.5vl:7b`` via Ollama and only that model's reply is returned.
+    This gives a direct, side-by-side baseline for the regular chat endpoint.
+    """
+
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def put(self, request, pk=None, format=None):
+        account_id = request.data.get("account_id")
+        query_text = request.data.get("query")
+        if not account_id or not query_text:
+            return Response({"error": "query and account_id are required"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        image_file = request.FILES.get("image")
+        image_bytes = image_file.read() if image_file else None
+        try:
+            from core.azure.qwen_ollama import run_ollama_qwen
+
+            cfg = AzureEnvironmentConfig.from_settings()
+            answer = run_ollama_qwen(
+                cfg.ollama_host, cfg.ollama_qwen_model, query_text, image_bytes
+            )
+            return Response({"text": answer, "imageUrl": None, "downloadUrl": None},
+                            status=status.HTTP_200_OK)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("baseline-test failed")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
