@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.azure import AzureEnvironmentConfig, create_session_azure_environment
+from core.azure import synth_screen
 from core.permissions import IsOwnerOrReadOnly
 
 from .models import Video, VideoEntity
@@ -92,6 +93,21 @@ class VideoUploadAPIView(APIView):
         if not file_obj or not account_id:
             return Response({"error": "file and account_id are required"},
                             status=status.HTTP_400_BAD_REQUEST)
+
+        # Refuse footage that is not camera-based. Only clear cases are rejected
+        # (the screen is precision-tuned and defaults to "camera"); if screening
+        # cannot run, the upload proceeds (fail-open).
+        verdict = self._screen_uploaded_video(file_obj)
+        if verdict in synth_screen.FABRICATED_VERDICTS:
+            logger.info("rejecting upload %s: screened as %s", file_obj.name, verdict)
+            return Response(
+                {"error": "This video appears to be AI-generated or fabricated and "
+                          "cannot be uploaded. Only camera-captured drone footage is "
+                          "accepted.",
+                 "verdict": verdict},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         cfg = AzureEnvironmentConfig.from_settings()
         blob_name = f"{account_id}/{file_obj.name}"
         try:
@@ -117,6 +133,35 @@ class VideoUploadAPIView(APIView):
         except Exception as exc:  # noqa: BLE001
             logger.exception("video upload failed")
             return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @staticmethod
+    def _screen_uploaded_video(file_obj):
+        """Return the fabrication-screen verdict for an uploaded clip.
+
+        Writes the upload to a temp file, runs :func:`core.azure.synth_screen.screen`,
+        then removes the temp file and rewinds ``file_obj`` for the blob upload.
+        Fail-open: any error (no ffprobe/cv2, unreadable clip) returns ``"camera"``
+        so a missing video toolchain never blocks a legitimate upload.
+        """
+        import tempfile  # noqa: PLC0415
+
+        suffix = os.path.splitext(file_obj.name or "")[1] or ".mp4"
+        fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                for chunk in file_obj.chunks():
+                    fh.write(chunk)
+            return synth_screen.screen(tmp_path).get("verdict", "camera")
+        except Exception:  # noqa: BLE001
+            logger.exception("video screening failed; allowing upload (fail-open)")
+            return "camera"
+        finally:
+            file_obj.seek(0)
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError as exc:
+                    logger.info("screen temp cleanup failed: %s", exc)
 
 
 class ChatAPIView(APIView):
