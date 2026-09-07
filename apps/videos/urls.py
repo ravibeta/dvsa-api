@@ -19,4 +19,6 @@ urlpatterns = [
     path('chat/', views.ChatAPIView.as_view(), name='chat'),
     # Raw qwen2.5vl:7b (Ollama) baseline — a peer of chat/ for direct comparison.
     path('baseline-test/', views.BaselineTestAPIView.as_view(), name='baseline-test'),
+    # Direct tool: extract the four survey-area corner frames (bypasses RAG/agent).
+    path('corners/', views.CornersAPIView.as_view(), name='corners'),
 ] + router.urls

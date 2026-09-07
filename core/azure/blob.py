@@ -15,6 +15,7 @@ import datetime
 import io
 import logging
 import os
+import tempfile
 import uuid
 from urllib.parse import urlparse
 
@@ -122,6 +123,43 @@ def upload_image_to_blob(image_bytes, object_url: str) -> None:
 
 def download_blob_to_stream(blob_client):
     return io.BytesIO(blob_client.download_blob().readall())
+
+
+def download_blob_to_temp(sas_url: str, suffix: str = ".mp4") -> str:
+    """Download the blob at ``sas_url`` to a temp file and return its path.
+
+    Caller is responsible for deleting the returned file.
+    """
+    from azure.storage.blob import BlobClient  # noqa: PLC0415
+
+    data = download_blob_to_stream(BlobClient.from_blob_url(sas_url)).getvalue()
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(data)
+    return path
+
+
+def put_blob_and_sas(config: AzureEnvironmentConfig, blob_name: str, data,
+                     *, container: str = None, content_type: str = "image/jpeg",
+                     ttl_hours: int = 1) -> str:
+    """Upload ``data`` to ``blob_name`` and return a read-only SAS download URL."""
+    from azure.storage.blob import (BlobSasPermissions,  # noqa: PLC0415
+                                    ContentSettings, generate_blob_sas)
+
+    container = container or config.input_container
+    svc = service_client(config)
+    svc.get_blob_client(container=container, blob=blob_name).upload_blob(
+        data, overwrite=True,
+        content_settings=ContentSettings(content_type=content_type),
+    )
+    sas_token = generate_blob_sas(
+        account_name=config.storage_account, container_name=container,
+        blob_name=blob_name, account_key=config.account_key,
+        permission=BlobSasPermissions(read=True),
+        expiry=datetime.datetime.utcnow() + datetime.timedelta(hours=ttl_hours),
+    )
+    return (f"https://{config.storage_account}.blob.core.windows.net/"
+            f"{container}/{blob_name}?{sas_token}")
 
 
 def copy_blob(source_sas_url: str, destination_sas_url: str, poll_interval: int = 2):
