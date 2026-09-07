@@ -2,6 +2,7 @@
 
 import datetime
 import logging
+import os
 
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -174,4 +175,77 @@ class BaselineTestAPIView(APIView):
                             status=status.HTTP_200_OK)
         except Exception as exc:  # noqa: BLE001
             logger.exception("baseline-test failed")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class CornersAPIView(APIView):
+    """Extract the four survey-area corner frames from an account's video.
+
+    A direct tool endpoint that bypasses the query / RAG / agentic path: given
+    an account's uploaded video, it runs the corner-extraction routine (see
+    :mod:`core.azure.survey_corners`), writes the four frames to a ``corners``
+    folder alongside the video's frames in blob storage
+    (``{account_id}/images/{video_pk}/corners/{label}.jpg``, overwriting any
+    existing ones), and returns a downloadable read-SAS URL for each corner,
+    ordered bottom-left -> top-left -> top-right -> bottom-right.
+
+    Request (``IsAuthenticated``): ``account_id`` (required), plus optional
+    ``video_id`` (a :class:`VideoEntity` pk) or ``sas_url`` to name the source
+    video. Without either, the account's most recent ``VideoEntity`` is used;
+    ``video_pk`` defaults to ``0`` when no entity can be resolved.
+    """
+
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def put(self, request, pk=None, format=None):
+        account_id = request.data.get("account_id")
+        if not account_id:
+            return Response({"error": "account_id is required"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        video_id = request.data.get("video_id")
+        sas_url = request.data.get("sas_url")
+
+        entity = None
+        if video_id:
+            entity = VideoEntity.objects.filter(pk=video_id,
+                                                account_id=account_id).first()
+            if entity is None:
+                return Response({"error": "video not found"},
+                                status=status.HTTP_404_NOT_FOUND)
+        elif not sas_url:
+            entity = VideoEntity.objects.filter(
+                account_id=account_id).order_by("-created").first()
+
+        source_url = sas_url or (entity.sas_url if entity else None)
+        if not source_url:
+            return Response({"error": "no video found for account"},
+                            status=status.HTTP_404_NOT_FOUND)
+        video_pk = entity.pk if entity else 0
+
+        try:
+            from core.azure import blob as azure_blob
+            from core.azure.survey_corners import extract_corner_frames
+
+            cfg = AzureEnvironmentConfig.from_settings()
+            video_path = azure_blob.download_blob_to_temp(source_url)
+            try:
+                frames = extract_corner_frames(video_path)
+            finally:
+                if os.path.exists(video_path):
+                    try:
+                        os.remove(video_path)
+                    except OSError as exc:
+                        logger.info("corners temp cleanup failed: %s", exc)
+
+            corners = []
+            for label, jpg_bytes, meta in frames:
+                blob_name = f"{account_id}/images/{video_pk}/corners/{label}.jpg"
+                download_url = azure_blob.put_blob_and_sas(cfg, blob_name, jpg_bytes)
+                corners.append({"label": label, "downloadUrl": download_url, **meta})
+            return Response({"account_id": str(account_id), "video_pk": video_pk,
+                             "count": len(corners), "corners": corners},
+                            status=status.HTTP_200_OK)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("corners extraction failed")
             return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
