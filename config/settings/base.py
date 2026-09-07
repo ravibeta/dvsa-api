@@ -306,6 +306,12 @@ DVSA_QWEN_MODEL = os.environ.get("DVSA_QWEN_MODEL", "qwen--qwen3.5-0.8b")
 DVSA_QWEN_BACKEND = os.environ.get("DVSA_QWEN_BACKEND", "azure")
 DVSA_QWEN_ONNX_MODEL_PATH = os.environ.get("DVSA_QWEN_ONNX_MODEL_PATH", "")
 
+# Local Ollama baseline for the /baseline-test endpoint: runs qwen2.5vl:7b via a
+# local Ollama server and returns only its raw answer, so it can be compared
+# directly against the regular agentic chat endpoint. No Azure involved.
+DVSA_OLLAMA_HOST = os.environ.get("DVSA_OLLAMA_HOST", "http://localhost:8848")
+DVSA_OLLAMA_QWEN_MODEL = os.environ.get("DVSA_OLLAMA_QWEN_MODEL", "qwen2.5vl:7b")
+
 # Sample object/scene image URIs used by object-in-scene search.
 SAMPLE_OBJECT_URI = os.environ.get("SAMPLE_OBJECT_URI", "")
 SAMPLE_SCENE_URI = os.environ.get("SAMPLE_SCENE_URI", "")

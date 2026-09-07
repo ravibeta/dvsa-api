@@ -17,4 +17,6 @@ urlpatterns = [
     # Ported account-scoped pipeline endpoints.
     path('upload-video/', views.VideoUploadAPIView.as_view(), name='upload-video'),
     path('chat/', views.ChatAPIView.as_view(), name='chat'),
+    # Raw qwen2.5vl:7b (Ollama) baseline — a peer of chat/ for direct comparison.
+    path('baseline-test/', views.BaselineTestAPIView.as_view(), name='baseline-test'),
 ] + router.urls

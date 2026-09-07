@@ -120,6 +120,12 @@ class AzureEnvironmentConfig:
     qwen_backend: str = "azure"
     qwen_onnx_model_path: str = ""
 
+    # Local Ollama baseline (qwen2.5vl:7b). Used by the ``/baseline-test``
+    # endpoint to serve a raw VLM answer for direct comparison against the
+    # agentic chat path — no Azure involved.
+    ollama_host: str = "http://localhost:8848"
+    ollama_qwen_model: str = "qwen2.5vl:7b"
+
     # Sample object/scene URIs.
     sample_object_uri: str = ""
     sample_scene_uri: str = ""
@@ -217,6 +223,8 @@ class AzureEnvironmentConfig:
             qwen_model=g("DVSA_QWEN_MODEL", "qwen--qwen3.5-0.8b"),
             qwen_backend=str(g("DVSA_QWEN_BACKEND", "azure")).strip().lower(),
             qwen_onnx_model_path=g("DVSA_QWEN_ONNX_MODEL_PATH", ""),
+            ollama_host=g("DVSA_OLLAMA_HOST", "http://localhost:8848"),
+            ollama_qwen_model=g("DVSA_OLLAMA_QWEN_MODEL", "qwen2.5vl:7b"),
             sample_object_uri=g("SAMPLE_OBJECT_URI", ""),
             sample_scene_uri=g("SAMPLE_SCENE_URI", ""),
         )
@@ -294,6 +302,8 @@ class AzureEnvironmentConfig:
             qwen_model=_env("DVSA_QWEN_MODEL", "qwen--qwen3.5-0.8b"),
             qwen_backend=str(_env("DVSA_QWEN_BACKEND", "azure")).strip().lower(),
             qwen_onnx_model_path=_env("DVSA_QWEN_ONNX_MODEL_PATH", "") or "",
+            ollama_host=_env("DVSA_OLLAMA_HOST", "http://localhost:8848"),
+            ollama_qwen_model=_env("DVSA_OLLAMA_QWEN_MODEL", "qwen2.5vl:7b"),
             sample_object_uri=_env("SAMPLE_OBJECT_URI", ""),
             sample_scene_uri=_env("SAMPLE_SCENE_URI", ""),
         )
