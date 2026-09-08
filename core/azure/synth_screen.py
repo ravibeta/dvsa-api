@@ -294,6 +294,265 @@ def motion_features(bursts) -> Dict[str, Any]:
         ratios.append(float(np.mean(accel) / denom))
     return {"motion_jerk": round(float(np.median(ratios)), 4) if ratios else None}
 
+# ================================================================
+# Additional physics-based aerial-drone provenance features
+#
+# Heavy runtimes (cv2, scikit-image) are imported lazily inside each
+# function, matching the rest of this module, so importing the module
+# never requires a vision stack. scikit-image is optional: when it is not
+# installed, glcm_features degrades to None rather than failing the import.
+# ================================================================
+
+
+# ---------------------------------------------------------------
+# 1. Rolling-shutter gradient (CMOS readout signature)
+# ---------------------------------------------------------------
+
+def rolling_shutter_signature(frames):
+    import cv2  # noqa: PLC0415
+
+    grads = []
+    for a, b in zip(frames[:-1], frames[1:]):
+        ga = cv2.cvtColor(a, cv2.COLOR_BGR2GRAY)
+        gb = cv2.cvtColor(b, cv2.COLOR_BGR2GRAY)
+        flow = cv2.calcOpticalFlowFarneback(ga, gb, None,
+                                            0.5, 3, 15, 3, 5, 1.2, 0)
+        vx = flow[..., 0]
+        g = np.mean(np.abs(np.gradient(vx, axis=0)))
+        grads.append(g)
+    return {"rs_gradient": float(np.median(grads)) if grads else None}
+
+
+# ---------------------------------------------------------------
+# 2. Radial vignetting slope (lens illumination falloff)
+# ---------------------------------------------------------------
+
+def radial_vignetting(frames):
+    import cv2  # noqa: PLC0415
+
+    slopes = []
+    for f in frames:
+        g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        h, w = g.shape
+        cy, cx = h // 2, w // 2
+        y, x = np.indices((h, w))
+        r = np.sqrt((y - cy)**2 + (x - cx)**2)
+        r_norm = r / r.max()
+        bins = np.linspace(0, 1, 20)
+        prof = [g[r_norm <= b].mean() for b in bins]
+        slope = np.polyfit(bins, prof, 1)[0]
+        slopes.append(slope)
+    return {"vignette_slope": float(np.median(slopes)) if slopes else None}
+
+
+# ---------------------------------------------------------------
+# 3. Bayer demosaicing correlation (physical sensor signature)
+# ---------------------------------------------------------------
+
+def bayer_demosaic_signature(frames):
+    corrs = []
+    for f in frames:
+        r, g, b = [f[..., i].astype(np.float32) for i in range(3)]
+        rc = np.corrcoef(r[:-1, :].ravel(), r[1:, :].ravel())[0, 1]
+        gc = np.corrcoef(g[:-1, :].ravel(), g[1:, :].ravel())[0, 1]
+        bc = np.corrcoef(b[:-1, :].ravel(), b[1:, :].ravel())[0, 1]
+        corrs.append((rc + gc + bc) / 3)
+    return {"demosaic_corr": float(np.median(corrs)) if corrs else None}
+
+
+# ---------------------------------------------------------------
+# 4. Compression periodicity (H.264/H.265 block boundary energy)
+# ---------------------------------------------------------------
+
+def compression_periodicity(frames):
+    import cv2  # noqa: PLC0415
+
+    scores = []
+    for f in frames:
+        g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
+        diff = np.abs(np.diff(g, axis=1))
+        col_energy = diff[:, ::8].mean()
+        diff = np.abs(np.diff(g, axis=0))
+        row_energy = diff[::8, :].mean()
+        scores.append((col_energy + row_energy) / 2)
+    return {"block_periodicity": float(np.median(scores)) if scores else None}
+
+
+# ---------------------------------------------------------------
+# 5. Temporal chromatic drift (auto-exposure / AWB signature)
+# ---------------------------------------------------------------
+
+def chromatic_drift(frames):
+    import cv2  # noqa: PLC0415
+
+    drifts = []
+    prev = None
+    for f in frames:
+        ycrcb = cv2.cvtColor(f, cv2.COLOR_BGR2YCrCb)
+        cr_mean = ycrcb[..., 1].mean()
+        if prev is not None:
+            drifts.append(abs(cr_mean - prev))
+        prev = cr_mean
+    return {"chromatic_drift": float(np.median(drifts)) if drifts else None}
+
+
+# ---------------------------------------------------------------
+# 6. Texture anisotropy (roads, roofs, vegetation directional cues)
+# ---------------------------------------------------------------
+
+def texture_anisotropy(frames):
+    import cv2  # noqa: PLC0415
+
+    anis = []
+    for f in frames:
+        g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        gx = cv2.Sobel(g, cv2.CV_32F, 1, 0)
+        gy = cv2.Sobel(g, cv2.CV_32F, 0, 1)
+        a = np.mean(np.abs(gx)) / (np.mean(np.abs(gy)) + 1e-6)
+        anis.append(a)
+    return {"anisotropy_ratio": float(np.median(anis)) if anis else None}
+
+
+# ---------------------------------------------------------------
+# 7. Fractal dimension (natural aerial scaling behavior)
+# ---------------------------------------------------------------
+
+def fractal_dimension(frames):
+    import cv2  # noqa: PLC0415
+
+    dims = []
+    for f in frames:
+        g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(g, 80, 160)
+        sizes = np.logspace(1, 5, num=10, base=2).astype(int)
+        counts = []
+        for s in sizes:
+            k = cv2.resize(edges, (edges.shape[1] // s, edges.shape[0] // s))
+            counts.append(np.sum(k > 0))
+        slope = np.polyfit(np.log(sizes), np.log(counts), 1)[0]
+        dims.append(slope)
+    return {"fractal_dim": float(np.median(dims)) if dims else None}
+
+
+# ---------------------------------------------------------------
+# 8. GLCM texture statistics (co-occurrence matrix)
+# ---------------------------------------------------------------
+
+def glcm_features(frames, levels=64):
+    import cv2  # noqa: PLC0415
+
+    empty = {"glcm_contrast": None, "glcm_homogeneity": None,
+             "glcm_energy": None, "glcm_entropy": None}
+    try:
+        # scikit-image >= 0.19 renamed grey* -> gray*; keep a fallback for
+        # older installs. If scikit-image is absent, degrade to None.
+        try:
+            from skimage.feature import graycomatrix, graycoprops  # noqa: PLC0415
+        except ImportError:  # pragma: no cover - old scikit-image
+            from skimage.feature import (  # noqa: PLC0415
+                greycomatrix as graycomatrix,
+                greycoprops as graycoprops,
+            )
+    except ImportError:
+        logger.info("scikit-image unavailable; skipping GLCM features")
+        return empty
+
+    stats = {"glcm_contrast": [], "glcm_homogeneity": [],
+             "glcm_energy": [], "glcm_entropy": []}
+    for f in frames:
+        g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
+        g = cv2.resize(g, (256, 256), interpolation=cv2.INTER_AREA)
+        q = (g.astype(np.float32) / 256.0 * (levels - 1)).astype(np.uint8)
+        glcm = graycomatrix(q, distances=[1], angles=[0],
+                            levels=levels, symmetric=True, normed=True)
+        stats["glcm_contrast"].append(graycoprops(glcm, "contrast")[0, 0])
+        stats["glcm_homogeneity"].append(graycoprops(glcm, "homogeneity")[0, 0])
+        stats["glcm_energy"].append(graycoprops(glcm, "energy")[0, 0])
+        p = glcm[:, :, 0, 0].ravel()
+        p = p[p > 0]
+        stats["glcm_entropy"].append(-np.sum(p * np.log(p)))
+    return {k: float(np.median(v)) if v else None for k, v in stats.items()}
+
+
+# ---------------------------------------------------------------
+# 9. DCT high-frequency spectral scars (GAN/diffusion fingerprints)
+# ---------------------------------------------------------------
+
+def dct_features(frames):
+    import cv2  # noqa: PLC0415
+
+    hf_means, hf_vars, hf_kurt = [], [], []
+    for f in frames:
+        g = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
+        g = cv2.resize(g, (256, 256), interpolation=cv2.INTER_AREA)
+        g = g.astype(np.float32) - 128.0
+        dct = cv2.dct(g)
+        h = dct[128:, 128:]
+        vals = h.ravel()
+        hf_means.append(float(np.mean(np.abs(vals))))
+        hf_vars.append(float(np.var(vals)))
+        m = np.mean(vals)
+        s2 = np.var(vals)
+        if s2 > 1e-6:
+            hf_kurt.append(float(np.mean(((vals - m)**4)) / (s2**2)))
+    return {
+        "hf_mean": float(np.median(hf_means)) if hf_means else None,
+        "hf_var": float(np.median(hf_vars)) if hf_vars else None,
+        "hf_kurt": float(np.median(hf_kurt)) if hf_kurt else None,
+    }
+
+
+# ---------------------------------------------------------------
+# 10. Chrominance-luminance variance coupling (optical physics)
+# ---------------------------------------------------------------
+
+def chroma_luma_features(frames, patch_size=16):
+    import cv2  # noqa: PLC0415
+
+    corrs = []
+    for f in frames:
+        ycrcb = cv2.cvtColor(f, cv2.COLOR_BGR2YCrCb).astype(np.float32)
+        Y, Cr, Cb = [ycrcb[..., i] for i in range(3)]
+        h, w = Y.shape
+        for i in range(0, h - patch_size, patch_size):
+            for j in range(0, w - patch_size, patch_size):
+                y_patch = Y[i:i+patch_size, j:j+patch_size]
+                cr_patch = Cr[i:i+patch_size, j:j+patch_size]
+                cb_patch = Cb[i:i+patch_size, j:j+patch_size]
+                if np.std(y_patch) < 5.0:
+                    continue
+                vy = np.var(y_patch)
+                vcr = np.var(cr_patch)
+                vcb = np.var(cb_patch)
+                vec = np.array([vy, vcr, vcb])
+                if np.all(vec > 0):
+                    corrs.append(np.corrcoef(vec)[0, 1])
+    return {"y_cr_var_corr": float(np.median(corrs)) if corrs else None}
+
+
+# ---------------------------------------------------------------
+# Unified multi-feature aggregator
+# ---------------------------------------------------------------
+
+def pixel_distribution_features(bursts):
+    frames = [b[i] for b in bursts for i in (0, len(b)//2, len(b)-1)]
+    if len(frames) < 3:
+        return {}
+
+    out = {}
+    out.update(rolling_shutter_signature(frames))
+    out.update(radial_vignetting(frames))
+    out.update(bayer_demosaic_signature(frames))
+    out.update(compression_periodicity(frames))
+    out.update(chromatic_drift(frames))
+    out.update(texture_anisotropy(frames))
+    out.update(fractal_dimension(frames))
+    out.update(glcm_features(frames))
+    out.update(dct_features(frames))
+    out.update(chroma_luma_features(frames))
+
+    return out
+
 
 # ------------------------------------------------------------------ verdict
 
@@ -352,6 +611,7 @@ def screen(path: str, n_bursts: int = 4, burst_len: int = 24,
         f.update(geometry_features(bursts))
         f.update(tracking_features(bursts))
         f.update(motion_features(bursts))
+        f.update(pixel_distribution_features(bursts))
     verdict, cam, syn = decide(f)
     f["verdict"] = verdict
     f["camera_evidence"] = cam

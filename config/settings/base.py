@@ -148,9 +148,33 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": "100/hour",
         "user": "1000/hour",
+        "video-upload": "20/hour",
     },
     "EXCEPTION_HANDLER": "core.exceptions.exception_handler",
 }
+
+# ---------------------------------------------------------------------------
+# Video upload hardening
+# ---------------------------------------------------------------------------
+# In-memory buffering caps (defense in depth). The hard per-upload ceiling is
+# enforced in VideoUploadAPIView (MAX_UPLOAD_BYTES = 500 MB); these only bound
+# how much Django holds in RAM. Any upload larger than FILE_UPLOAD_MAX_MEMORY_SIZE
+# is spooled to a temp file, which the view then streams via ``.chunks()``.
+FILE_UPLOAD_MAX_MEMORY_SIZE = int(
+    os.environ.get("FILE_UPLOAD_MAX_MEMORY_SIZE", 5 * 1024 * 1024)
+)  # 5 MB
+# Bounds the non-file portion of a request body (multipart file parts are
+# exempt from this check, so it never limits the uploaded video itself).
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(
+    os.environ.get("DATA_UPLOAD_MAX_MEMORY_SIZE", 5 * 1024 * 1024)
+)  # 5 MB
+
+# Fabricated-footage screen (core.azure.synth_screen). Set the env var to a
+# falsey value ("0"/"false"/"no") to skip screening entirely on the upload
+# path; uploads then bypass the synth screen and proceed straight to storage.
+VIDEO_SYNTH_SCREEN_ENABLED = os.environ.get(
+    "VIDEO_SYNTH_SCREEN_ENABLED", "true"
+).strip().lower() not in ("0", "false", "no", "")
 
 # JWT Configuration
 SIMPLE_JWT = {
