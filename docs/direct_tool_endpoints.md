@@ -71,6 +71,68 @@ by `sas_url` (no entity). The response returns a downloadable, read-only SAS URL
 }
 ```
 
+## `/extract-frames` — salient / time-stride frames
+
+```
+POST /api/v1/videos/extract-frames/        (IsAuthenticated)
+form-data / JSON:
+    account_id      (required)  the account whose video to sample
+    video_id        (optional)  a VideoEntity pk (scoped to account_id)
+    video_sas_url   (optional)  alias sas_url — sample this blob directly
+    stride          (optional)  seconds between samples on the stride fallback (default 10)
+    page / page_size (optional) DRF pagination (body or query params; page_size max 100)
+```
+
+Given an account's video, the endpoint extracts JPEG frames and writes them into
+the **same blob layout ingestion uses** so nothing else has to change:
+
+```
+{account_id}/images/{video_id}/frame{N}.jpg     # N contiguous from 0
+```
+
+`video_id` is the `VideoEntity` pk when one is resolved (same resolution order
+as `/corners`: `video_sas_url`/`sas_url` → `video_id` → the account's most recent
+`VideoEntity`; `404` if none), and is omitted from the path when only a raw SAS
+URL is given. Numbering is always contiguous `frame0, frame1, …` — the source
+timestamp is returned as `t` and stored on `ImageEntity`, never encoded in the
+blob name (`get_uploaded_frames` walks `0,1,2,…` and stops at the first gap).
+
+**Frame source** (top-level `source` field), chosen in order:
+
+1. `existing` — frames already present under the prefix are reused; the video is
+   **not** downloaded or decoded again, and fresh read SAS URLs are minted. This
+   is what makes repeat calls idempotent.
+2. `video_indexer` — Azure Video Indexer key frames (shots/keyframes from the
+   insights), when `VideoIndexerClient` is configured.
+3. `stride` — one frame every `stride` seconds (default 10), sampled with OpenCV.
+
+Because the frames land in the shared layout with contiguous numbering, the
+ingestion pipeline (`SessionAzureEnvironment.ingest_video`) sees them via
+`get_uploaded_frames` and **skips** its own every-frame dump — Video Indexer and
+search indexing are otherwise untouched.
+
+**Response** — the `StandardResultsSetPagination` envelope plus `account_id`,
+`video_pk`, and `source`:
+
+```json
+{
+  "account_id": "7",
+  "video_pk": 42,
+  "source": "stride",
+  "count": 18,
+  "next": "http://.../extract-frames/?page=2&page_size=10",
+  "previous": null,
+  "results": [
+    {"frame_number": 0, "blob_name": "7/images/42/frame0.jpg",
+     "sas_url": "https://sadronevideo.blob.core.windows.net/input/7/images/42/frame0.jpg?sv=...", "t": 0.0},
+    {"frame_number": 1, "blob_name": "7/images/42/frame1.jpg", "sas_url": "...", "t": 10.0}
+  ]
+}
+```
+
+SAS TTL is 1 hour (as `put_blob_and_sas`). When a `VideoEntity` exists, one
+`ImageEntity` per frame is persisted (`sas_url`, `timestamp`).
+
 ## Testing
 
 `tests/test_corners.py` runs fully offline. The pure geometry (corner ordering
@@ -80,3 +142,10 @@ patch the three seams the view uses — the blob download
 (`core.azure.survey_corners.extract_corner_frames`), and the upload/SAS mint
 (`core.azure.blob.put_blob_and_sas`) — so no video runtime, Azure account, or
 credentials are needed in CI.
+
+`tests/test_frame_extraction.py` follows the same offline pattern for
+`/extract-frames/`: it patches `get_uploaded_frames`, `download_blob_to_temp`,
+the samplers (`apps.videos.frame_extract._stride_samples` /
+`_video_indexer_samples`), and `put_blob_and_sas` / `read_sas_for_blob`, and
+also asserts the ingestion skip (a mocked `ingest_video` does not re-extract when
+frames already exist).
