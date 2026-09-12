@@ -21,10 +21,12 @@ from rest_framework.views import APIView
 
 from core.azure import AzureEnvironmentConfig, create_session_azure_environment
 from core.azure import synth_screen
+from core.pagination import StandardResultsSetPagination
 from core.permissions import IsOwnerOrReadOnly
 
-from .models import Video, VideoEntity
-from .serializers import VideoEntitySerializer, VideoSerializer
+from .models import ImageEntity, Video, VideoEntity
+from .serializers import (FrameExtractRequestSerializer, FrameResultSerializer,
+                          VideoEntitySerializer, VideoSerializer)
 
 logger = logging.getLogger("apps.videos")
 
@@ -559,3 +561,119 @@ class CornersAPIView(APIView):
         except Exception as exc:  # noqa: BLE001
             logger.exception("corners extraction failed")
             return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class FrameExtractAPIView(APIView):
+    """Extract salient/stride JPEG frames from an account's video.
+
+    A direct tool endpoint (peer of :class:`CornersAPIView`) that bypasses the
+    query / RAG / agentic path. It writes frames into the *existing* ingestion
+    blob layout (``{account_id}/images/{video_id}/frame{N}.jpg``, contiguous
+    ``N`` from 0) and returns a **paginated** list of freshly minted read-only
+    SAS URLs. Frame source, in order: already-uploaded frames (idempotent
+    re-mint, no decode), else Azure Video Indexer key frames when configured,
+    else a time stride (``stride`` seconds, default 10).
+
+    Because frames land in the shared layout with contiguous numbering, the
+    ingestion pipeline's ``get_uploaded_frames`` sees them and skips its own
+    full-frame dump.
+
+    Request (``IsAuthenticated``): ``account_id`` (required); optional
+    ``video_id`` (a :class:`VideoEntity` pk) or ``video_sas_url``/``sas_url``;
+    ``stride`` seconds; ``page``/``page_size`` (body or query params).
+    """
+
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, format=None):
+        serializer = FrameExtractRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        account_id = serializer.validated_data["account_id"]
+        video_id = serializer.validated_data.get("video_id")
+        source_sas = serializer.resolved_sas_url()
+        stride = float(serializer.validated_data.get("stride") or 10.0)
+
+        entity = None
+        if video_id:
+            entity = VideoEntity.objects.filter(pk=video_id,
+                                                account_id=account_id).first()
+            if entity is None:
+                return Response({"error": "video not found"},
+                                status=status.HTTP_404_NOT_FOUND)
+        elif not source_sas:
+            entity = VideoEntity.objects.filter(
+                account_id=account_id).order_by("-created").first()
+
+        source_url = source_sas or (entity.sas_url if entity else None)
+        if not source_url:
+            return Response({"error": "no video found for account"},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        video_pk = entity.pk if entity else 0
+        # Blob-path segment: the VideoEntity pk, or omitted when only a raw SAS.
+        path_segment = entity.pk if entity else None
+
+        try:
+            from apps.videos import frame_extract
+
+            cfg = AzureEnvironmentConfig.from_settings()
+            source, frames = frame_extract.extract_frames(
+                cfg, source_url, account_id=str(account_id),
+                video_id=path_segment, stride_seconds=stride)
+
+            if entity is not None:
+                self._sync_image_entities(entity, str(account_id), source_url, frames)
+
+            paginator = StandardResultsSetPagination()
+            self._inject_body_page_params(request)
+            page = paginator.paginate_queryset(frames, request, view=self)
+            items = FrameResultSerializer(page or [], many=True).data
+            return Response({
+                "account_id": str(account_id),
+                "video_pk": video_pk,
+                "source": source,
+                "count": paginator.page.paginator.count,
+                "next": paginator.get_next_link(),
+                "previous": paginator.get_previous_link(),
+                "results": items,
+            }, status=status.HTTP_200_OK)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("frame extraction failed")
+            return Response({"error": str(exc)},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @staticmethod
+    def _inject_body_page_params(request):
+        """Let ``page``/``page_size`` arrive in the JSON body too, not only the
+        query string (DRF pagination reads them from ``query_params``)."""
+        q = request._request.GET.copy()
+        for key in ("page", "page_size"):
+            val = request.data.get(key)
+            if key not in q and val not in (None, ""):
+                q[key] = str(val)
+        request._request.GET = q
+
+    @staticmethod
+    def _sync_image_entities(entity, account_id, source_url, frames):
+        """Persist one :class:`ImageEntity` per frame (best-effort, idempotent)."""
+        try:
+            if entity.images.count() == len(frames):
+                return
+            entity.images.all().delete()
+            rows = []
+            for frame in frames:
+                t = frame.get("t")
+                ts = None
+                if isinstance(t, (int, float)) and 0 <= t < 86400:
+                    ts = (datetime.datetime.min + datetime.timedelta(seconds=float(t))).time()
+                rows.append(ImageEntity(
+                    video=entity, account_id=account_id,
+                    index_name=(entity.index_name or ""), video_url=source_url,
+                    sas_url=frame["sas_url"], timestamp=ts, status="extracted",
+                ))
+            ImageEntity.objects.bulk_create(rows)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("frame ImageEntity persistence skipped: %s", exc)

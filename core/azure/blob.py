@@ -58,6 +58,21 @@ def get_sas_url_for_frame(sas_url_template, frame_number):
         return None
 
 
+def image_blob_name(config: AzureEnvironmentConfig, video_url: str, frame_number: int,
+                    *, folder: str = "images", prefix: str = "frame",
+                    video_id=None) -> str:
+    """Blob name (container-relative path) for a frame, e.g.
+    ``{account_id}/images/{video_id}/frame{N}.jpg``.
+
+    Derived from :func:`get_image_blob_url` so the new frame-extraction API and
+    the existing ingestion path agree on exactly one path builder.
+    """
+    image_url = get_image_blob_url(video_url, frame_number, folder=folder,
+                                   prefix=prefix, video_id=video_id).strip('"')
+    account_prefix = f"{_account_url(config)}/{config.input_container}/"
+    return image_url.split("?")[0].replace(account_prefix, "")
+
+
 # --------------------------------------------------------------------------
 # Authenticated blob operations
 # --------------------------------------------------------------------------
@@ -139,19 +154,12 @@ def download_blob_to_temp(sas_url: str, suffix: str = ".mp4") -> str:
     return path
 
 
-def put_blob_and_sas(config: AzureEnvironmentConfig, blob_name: str, data,
-                     *, container: str = None, content_type: str = "image/jpeg",
-                     ttl_hours: int = 1) -> str:
-    """Upload ``data`` to ``blob_name`` and return a read-only SAS download URL."""
-    from azure.storage.blob import (BlobSasPermissions,  # noqa: PLC0415
-                                    ContentSettings, generate_blob_sas)
+def read_sas_for_blob(config: AzureEnvironmentConfig, blob_name: str,
+                      *, container: str = None, ttl_hours: int = 1) -> str:
+    """Mint a fresh read-only SAS download URL for an existing blob (no upload)."""
+    from azure.storage.blob import BlobSasPermissions, generate_blob_sas  # noqa: PLC0415
 
     container = container or config.input_container
-    svc = service_client(config)
-    svc.get_blob_client(container=container, blob=blob_name).upload_blob(
-        data, overwrite=True,
-        content_settings=ContentSettings(content_type=content_type),
-    )
     sas_token = generate_blob_sas(
         account_name=config.storage_account, container_name=container,
         blob_name=blob_name, account_key=config.account_key,
@@ -160,6 +168,21 @@ def put_blob_and_sas(config: AzureEnvironmentConfig, blob_name: str, data,
     )
     return (f"https://{config.storage_account}.blob.core.windows.net/"
             f"{container}/{blob_name}?{sas_token}")
+
+
+def put_blob_and_sas(config: AzureEnvironmentConfig, blob_name: str, data,
+                     *, container: str = None, content_type: str = "image/jpeg",
+                     ttl_hours: int = 1) -> str:
+    """Upload ``data`` to ``blob_name`` and return a read-only SAS download URL."""
+    from azure.storage.blob import ContentSettings  # noqa: PLC0415
+
+    container = container or config.input_container
+    svc = service_client(config)
+    svc.get_blob_client(container=container, blob=blob_name).upload_blob(
+        data, overwrite=True,
+        content_settings=ContentSettings(content_type=content_type),
+    )
+    return read_sas_for_blob(config, blob_name, container=container, ttl_hours=ttl_hours)
 
 
 def copy_blob(source_sas_url: str, destination_sas_url: str, poll_interval: int = 2):
@@ -225,12 +248,10 @@ def get_uploaded_frames(config: AzureEnvironmentConfig, video_sas_url: str,
     except Exception as exc:  # noqa: BLE001
         logger.info("get_uploaded_frames: %s", exc)
         return 0
-    prefix = f"{_account_url(config)}/{container}/"
     frame_number = 0
     for frame_number in range(9999):
         try:
-            image_url = get_image_blob_url(video_sas_url, frame_number, video_id=video_id).strip('"')
-            blob_name = image_url.split("?")[0].replace(prefix, "")
+            blob_name = image_blob_name(config, video_sas_url, frame_number, video_id=video_id)
             svc.get_blob_client(container=container, blob=blob_name).get_blob_properties()
         except Exception:  # noqa: BLE001 - first missing frame ends the scan
             break

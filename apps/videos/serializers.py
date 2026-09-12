@@ -29,3 +29,26 @@ class VideoEntitySerializer(serializers.ModelSerializer):
     class Meta:
         model = VideoEntity
         fields = '__all__'
+
+
+class FrameExtractRequestSerializer(serializers.Serializer):
+    """Request body for ``POST /api/v1/videos/extract-frames/``."""
+
+    account_id = serializers.CharField()
+    video_sas_url = serializers.CharField(required=False, allow_blank=True)
+    sas_url = serializers.CharField(required=False, allow_blank=True)
+    video_id = serializers.IntegerField(required=False)
+    stride = serializers.FloatField(required=False, default=10.0, min_value=0.1)
+
+    def resolved_sas_url(self):
+        data = self.validated_data
+        return data.get("video_sas_url") or data.get("sas_url") or None
+
+
+class FrameResultSerializer(serializers.Serializer):
+    """One extracted frame in the paginated response."""
+
+    frame_number = serializers.IntegerField()
+    blob_name = serializers.CharField()
+    sas_url = serializers.CharField()
+    t = serializers.FloatField(required=False, allow_null=True)
