@@ -33,6 +33,7 @@ from . import histograms  # noqa: F401
 from . import motion  # noqa: F401
 from . import parking  # noqa: F401
 from . import tiling  # noqa: F401
+from . import tracking  # noqa: F401
 from . import zone_counting  # noqa: F401
 
 
