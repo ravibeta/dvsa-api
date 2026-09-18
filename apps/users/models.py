@@ -11,6 +11,10 @@ class CustomUserManager(UserManager):
         if not email:
             raise ValueError('Email address is required')
         email = self.normalize_email(email)
+        # AbstractUser keeps a unique ``username`` even though we authenticate by
+        # email; default it to the (unique) email so concurrent sign-ups don't
+        # collide on an empty username. Callers may still pass one explicitly.
+        extra_fields.setdefault('username', email)
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
