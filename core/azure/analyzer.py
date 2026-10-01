@@ -246,6 +246,29 @@ def get_sas_url_template(account_id, video_id=None, upload=False):
         return None
 
 
+def describe_frame(account_id, video_id=None, frame_number=0):
+    """Caption/tag one extracted frame via Azure AI Vision (function tool).
+
+    Resolves the real frame SAS URL for ``account_id``/``video_id`` and runs
+    the same ``VisionClient.analyze_image`` used to caption frames during
+    ingest (``AZURE_AI_VISION_ENDPOINT``/``AZURE_AI_VISION_API_KEY``), so the
+    chat agent can answer "what's in the scene" / "how many X are visible"
+    questions from a real caption+tags+objects analysis without needing
+    Perplexity or Qwen configured. Returns a compact JSON string.
+    """
+    from .blob import get_sas_url_for_frame  # noqa: PLC0415
+    from .vision import VisionClient  # noqa: PLC0415
+
+    cfg = _cfg()
+    sas_url_template = get_sas_url_template(account_id, video_id)
+    if not sas_url_template:
+        return "No extracted frames are available for this account/video yet."
+    frame_url = get_sas_url_for_frame(sas_url_template, frame_number)
+    if not frame_url:
+        return "Could not resolve a frame URL for this account/video."
+    return VisionClient(cfg).analyze_image_description(frame_url)
+
+
 def get_object_uri(object_description, account_id, video_id=None, frame_number=None):
     """Find an object's bounding box via the scene-search agent, clip + upload it."""
     from .blob import get_sas_url_for_frame  # noqa: PLC0415
@@ -378,7 +401,7 @@ def analyzer_functions() -> Set[Callable[..., Any]]:
         download_image, count_object_occurrences, count_matches,
         get_matched_descriptors, cluster_by_similarity, count_multiple_matches,
         agentic_retrieval, get_object_uri, get_scene_uri, get_sas_url_template,
-        ask_perplexity,
+        describe_frame, ask_perplexity,
     }
     if _cfg().qwen_enabled:
         fns.add(ask_qwen_vlm)

@@ -191,7 +191,8 @@ class FoundryAgents:
         return answer
 
     # ----- function-tool agents -----------------------------------------
-    def _run_function_agent(self, query_text, agent_name, functions_set) -> Optional[str]:
+    def _run_function_agent(self, query_text, agent_name, functions_set,
+                            account_id=None, video_id=None) -> Optional[str]:
         from azure.ai.agents.models import (  # noqa: PLC0415
             FunctionTool, RequiredFunctionToolCall,
         )
@@ -201,8 +202,21 @@ class FoundryAgents:
         instructions = (
             "You are a drone aerial image analytics assistant that answers the "
             "question by finding a suitable function, passing the question to it, "
-            "evaluating it and relaying the response. If you can't find a suitable "
-            "function, default to the ask_perplexity function in your tools."
+            "evaluating it and relaying the response. For questions about what is "
+            "visible in the scene — description, notable objects/events, or "
+            "counting things by appearance (e.g. how many railway tracks) — call "
+            "describe_frame first; it returns a real caption/tags/objects analysis "
+            "from Azure AI Vision for one frame. Try a few frame_number values "
+            "(0, 1, 2, ...) if the first doesn't answer the question. Only if "
+            "describe_frame can't answer, fall back to ask_perplexity. "
+            "Every user message is preceded by a line like "
+            "'[Context: account_id=..., video_id=...]' naming the account and video "
+            "to operate on — always pass those exact values as the account_id/"
+            "video_id arguments of tools such as get_sas_url_template, "
+            "describe_frame, ask_perplexity, and agentic_retrieval so they can "
+            "resolve the real frame images themselves. Never ask the user to "
+            "upload an image or supply a URL, and never invent or guess an image "
+            "URL yourself."
         )
         with agents_client:
             agent = self._find_agent(agents_client, agent_name)
@@ -212,27 +226,36 @@ class FoundryAgents:
                     instructions=instructions, tools=functions.definitions,
                     tool_resources=functions.resources, top_p=1,
                 )
+            elif agent.instructions != instructions:
+                # Keep a previously-created agent's instructions in sync (e.g.
+                # agents created before this grounding context was added).
+                agent = agents_client.update_agent(agent.id, instructions=instructions)
 
             def _exec(tool_call):
                 if isinstance(tool_call, RequiredFunctionToolCall):
                     return functions.execute(tool_call)
                 return None
 
-            return self._run_agent(agents_client, agent, query_text, _exec)
+            content = query_text
+            if account_id:
+                content = f"[Context: account_id={account_id}, video_id={video_id}]\n{query_text}"
+            return self._run_agent(agents_client, agent, content, _exec)
 
     def run_function_tools(self, query_text, account_id) -> Optional[str]:
         if not self.configured:
             return self._echo(query_text)
         from .analyzer import image_user_functions  # noqa: PLC0415
 
-        return self._run_function_agent(query_text, self.config.fn_agent_name, image_user_functions())
+        return self._run_function_agent(query_text, self.config.fn_agent_name, image_user_functions(),
+                                        account_id=account_id)
 
-    def run_analyzer_tools(self, query_text, account_id) -> Optional[str]:
+    def run_analyzer_tools(self, query_text, account_id, video_id=None) -> Optional[str]:
         if not self.configured:
             return self._echo(query_text)
         from .analyzer import analyzer_functions  # noqa: PLC0415
 
-        return self._run_function_agent(query_text, self.config.tool_agent_name, analyzer_functions())
+        return self._run_function_agent(query_text, self.config.tool_agent_name, analyzer_functions(),
+                                        account_id=account_id, video_id=video_id)
 
     # ----- AI-search knowledge agent ------------------------------------
     def run_connected_agent(self, query_text, account_id, index_name=None) -> Optional[str]:
@@ -363,9 +386,9 @@ class FoundryAgents:
             f"[Connected Agent Output]:\n{delegated}\n"
         )
 
-    def synthesize_from_chat_agent(self, query_text, account_id) -> str:
+    def synthesize_from_chat_agent(self, query_text, account_id, video_id=None) -> str:
         """Consolidate analyzer-tool output into a smooth narrative via chat agent."""
-        delegated = self.run_analyzer_tools(query_text, account_id)
+        delegated = self.run_analyzer_tools(query_text, account_id, video_id)
         synthesis = f"[User]: {query_text}\n\n[Connected Agent Output]:\n{delegated}\n"
         if not self.configured:
             return self._echo(synthesis)

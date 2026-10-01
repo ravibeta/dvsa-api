@@ -431,6 +431,7 @@ class ChatAPIView(APIView):
     def put(self, request, pk=None, format=None):
         account_id = request.data.get("account_id")
         query_text = request.data.get("query")
+        video_id = request.data.get("video_id")
 
         if not account_id or not query_text:
             return Response({"error": "query and account_id are required"},
@@ -440,7 +441,8 @@ class ChatAPIView(APIView):
             env = create_session_azure_environment(
                 f"account-{account_id}", user_id=request.user.pk
             )
-            answer = env.ask(query_text, str(account_id))
+            answer = env.ask(query_text, str(account_id),
+                              video_id=str(video_id) if video_id else None)
             return Response({"text": answer, "imageUrl": None, "downloadUrl": None},
                              status=status.HTTP_200_OK)
         except Exception as exc:  # noqa: BLE001
