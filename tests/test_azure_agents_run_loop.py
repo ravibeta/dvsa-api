@@ -101,6 +101,81 @@ def test_raising_tool_call_still_advances_the_run(monkeypatch):
     assert "tool blew up" in submitted[0].output
 
 
+def test_tool_round_cap_cancels_a_model_stuck_retrying(monkeypatch):
+    """Live symptom: the model kept calling describe_frame with a new wrong
+    kwarg each round (frame_index, then scene_img, ...), never converging.
+    The SDK's FunctionTool.execute() already catches that TypeError and
+    returns {"error": "..."} rather than raising, so submit_tool_outputs was
+    always being called — the wall-clock deadline was the only backstop, and
+    at ~1-2s of model latency per round it could burn most of
+    _AGENT_MAX_RUN_SECONDS before firing. The round cap cuts this off fast,
+    independent of wall clock."""
+    _patch_action_class(monkeypatch)
+    monkeypatch.setattr("core.azure.agents._AGENT_MAX_TOOL_ROUNDS", 2)
+    agents = FoundryAgents(SimpleNamespace())
+
+    def make_pending():
+        tool_call = SimpleNamespace(id="call-x", function=SimpleNamespace(name="describe_frame"))
+        return SimpleNamespace(
+            id="run-1", status="requires_action",
+            required_action=_FakeSubmitToolOutputsAction(tool_calls=[tool_call]),
+        )
+
+    fake_client = MagicMock()
+    fake_client.threads.create.return_value = SimpleNamespace(id="thread-1")
+    fake_client.runs.create.return_value = make_pending()
+    # Keeps reporting a fresh requires_action every poll, forever, if nothing
+    # stops the loop.
+    fake_client.runs.get.side_effect = lambda **_: make_pending()
+    fake_client.messages.list.return_value = []
+
+    monkeypatch.setattr("core.azure.agents.time.sleep", lambda *_: None)
+
+    executor = MagicMock(return_value='{"error": "describe_frame() got an unexpected keyword argument \'x\'"}')
+    agents._run_agent(fake_client, SimpleNamespace(id="agent-1"), "hello", executor)
+
+    fake_client.runs.cancel.assert_called_once_with(thread_id="thread-1", run_id="run-1")
+    # _AGENT_MAX_TOOL_ROUNDS (2) rounds were actually processed/submitted;
+    # the 3rd poll is what detects the cap was exceeded and cancels — proof
+    # this terminates in a handful of rounds, not up to the full wall-clock
+    # budget.
+    assert fake_client.runs.submit_tool_outputs.call_count == 2
+    assert fake_client.runs.get.call_count == 3
+
+
+def test_repeated_failures_of_same_function_trigger_a_stop_message(monkeypatch):
+    _patch_action_class(monkeypatch)
+    monkeypatch.setattr("core.azure.agents._AGENT_MAX_TOOL_ROUNDS", 10)
+    agents = FoundryAgents(SimpleNamespace())
+
+    def make_pending(call_id):
+        tool_call = SimpleNamespace(id=call_id, function=SimpleNamespace(name="describe_frame"))
+        return SimpleNamespace(
+            id="run-1", status="requires_action",
+            required_action=_FakeSubmitToolOutputsAction(tool_calls=[tool_call]),
+        )
+
+    done_run = SimpleNamespace(id="run-1", status="completed", required_action=None)
+
+    fake_client = MagicMock()
+    fake_client.threads.create.return_value = SimpleNamespace(id="thread-1")
+    fake_client.runs.create.return_value = make_pending("call-1")
+    fake_client.runs.get.side_effect = [make_pending("call-1"), make_pending("call-2"), done_run]
+    fake_client.messages.list.return_value = []
+
+    monkeypatch.setattr("core.azure.agents.time.sleep", lambda *_: None)
+
+    executor = MagicMock(return_value='{"error": "unexpected keyword argument"}')
+    agents._run_agent(fake_client, SimpleNamespace(id="agent-1"), "hello", executor)
+
+    calls = fake_client.runs.submit_tool_outputs.call_args_list
+    assert len(calls) == 2
+    first_output = calls[0].kwargs["tool_outputs"][0].output
+    second_output = calls[1].kwargs["tool_outputs"][0].output
+    assert "Stop calling it" not in first_output
+    assert "Stop calling it" in second_output
+
+
 def test_run_that_never_settles_is_cancelled_after_the_deadline(monkeypatch):
     """Defense in depth: even if something else keeps a run in
     requires_action/in_progress forever, _run_agent must give up and return

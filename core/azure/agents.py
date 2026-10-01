@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .config import AzureEnvironmentConfig
 
@@ -33,6 +33,14 @@ _AGENT_MAX_OUTPUT_TOKENS = 10000
 # outputs -> ...). Defense in depth against a run that never settles, so a
 # single chat request can't hang indefinitely.
 _AGENT_MAX_RUN_SECONDS = 90
+# Hard cap on requires_action rounds within one run, independent of wall
+# clock: a model stuck retrying a broken tool call burns a full model turn
+# per round (several seconds), so without this it can eat most of
+# _AGENT_MAX_RUN_SECONDS before that deadline ever fires.
+_AGENT_MAX_TOOL_ROUNDS = 6
+# Consecutive failures of the *same* function name before we tell the model
+# outright to stop calling it and answer with what it already has.
+_MAX_REPEATED_TOOL_FAILURES = 2
 
 
 def _json_safe(o: Any) -> Any:
@@ -171,6 +179,15 @@ class FoundryAgents:
         agents_client.messages.create(thread_id=thread.id, role="user", content=content)
         run = agents_client.runs.create(thread_id=thread.id, agent_id=agent.id)
         deadline = time.monotonic() + _AGENT_MAX_RUN_SECONDS
+        tool_rounds = 0
+        # Per-function consecutive-failure count. A cheap model with a dozen
+        # overlapping, non-strict tool schemas (confirmed live: gpt-4o-mini
+        # calling describe_frame with frame_index, then scene_img — kwargs
+        # that belong to *other* registered tools) can fail the same function
+        # repeatedly without ever converging on its real signature; each
+        # round still costs a full model turn, so this can't be solved by the
+        # wall-clock deadline alone without burning most of that budget.
+        failure_streaks: Dict[str, int] = {}
         while run.status in ("queued", "in_progress", "requires_action"):
             if time.monotonic() > deadline:
                 # Defense in depth: a run that never settles (a looping tool
@@ -190,6 +207,15 @@ class FoundryAgents:
                 if not tool_calls:
                     agents_client.runs.cancel(thread_id=thread.id, run_id=run.id)
                     break
+                tool_rounds += 1
+                if tool_rounds > _AGENT_MAX_TOOL_ROUNDS:
+                    logger.warning("Agent run %s exceeded %s tool-call rounds; cancelling.",
+                                   run.id, _AGENT_MAX_TOOL_ROUNDS)
+                    try:
+                        agents_client.runs.cancel(thread_id=thread.id, run_id=run.id)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    break
                 tool_outputs = []
                 for tool_call in tool_calls:
                     # Every pending tool_call must get a ToolOutput — including
@@ -207,6 +233,24 @@ class FoundryAgents:
                         except Exception as exc:  # noqa: BLE001
                             logger.info("Error executing tool_call %s: %s", tool_call.id, exc)
                             output = f"Error: {exc}"
+                    name = getattr(getattr(tool_call, "function", None), "name", None)
+                    # The SDK's own FunctionTool.execute() already catches a
+                    # bad-argument TypeError and returns {"error": "..."} —
+                    # it never raises — so this is the only place such
+                    # failures are visible to flag a repeat.
+                    is_error = output.startswith("Error") or '"error"' in output
+                    if name:
+                        if is_error:
+                            failure_streaks[name] = failure_streaks.get(name, 0) + 1
+                            if failure_streaks[name] >= _MAX_REPEATED_TOOL_FAILURES:
+                                output += (
+                                    f" You have now called {name} with invalid "
+                                    "arguments multiple times in a row. Stop "
+                                    "calling it and answer the question using "
+                                    "only the information already gathered."
+                                )
+                        else:
+                            failure_streaks[name] = 0
                     if output:
                         answer = output
                     tool_outputs.append(ToolOutput(tool_call_id=tool_call.id, output=output))
