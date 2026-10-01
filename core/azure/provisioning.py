@@ -344,11 +344,28 @@ class AzureSdkProvisioner(Provisioner):
         return SearchIndexClient(endpoint, AzureKeyCredential(key))
 
     def ensure_search_index(self, name: str) -> Dict[str, Any]:
+        """Best-effort "make sure the index exists" — never fatal.
+
+        Runs on *every* session creation (every chat/extract-frames/ingest
+        request), re-asserting the full schema each time even though the
+        index almost always already exists unchanged. Confirmed live: once a
+        Knowledge Agent (run_connected_agent) targets this index directly,
+        Azure AI Search auto-manages a backing knowledge source tied to the
+        index's semantic configuration, and our schema
+        (index_schema.build_search_index) doesn't declare one — so Azure
+        rejects the update as "removing" it, and that 500'd the *entire*
+        chat request even though the index itself was perfectly usable. A
+        redundant "ensure" step that already exists must never take down an
+        otherwise-working request.
+        """
         index = index_schema.build_search_index(name, self.config.vector_dimensions)
         try:
             self._index_client().create_or_update_index(index)
         except Exception as exc:  # noqa: BLE001
-            raise ProvisioningError(f"search index {name} failed: {exc}") from exc
+            logger.warning("search index %s ensure failed (continuing — it may "
+                           "already exist and be usable as-is): %s", name, exc)
+            return self._record("ensure", "search_index", name=name,
+                                dimensions=self.config.vector_dimensions, error=str(exc))
         return self._record("ensure", "search_index", name=name,
                             dimensions=self.config.vector_dimensions)
 

@@ -294,9 +294,9 @@ class SessionAzureEnvironment:
         return {"video_sas_url": video_sas_url, "frames": frames, "indexed": indexed}
 
     # ----- agentic Q&A delegations ---------------------------------------
-    def ask(self, query_text: str, account_id: str) -> str:
+    def ask(self, query_text: str, account_id: str, video_id: Optional[str] = None) -> str:
         """Answer a question over the indexed frames (chat-agent synthesis)."""
-        return self.agents.synthesize_from_chat_agent(query_text, account_id)
+        return self.agents.synthesize_from_chat_agent(query_text, account_id, video_id)
 
     def knowledge_base_search(self, query_text: str, account_id: str):
         return self.agents.knowledge_base_search(query_text, account_id)

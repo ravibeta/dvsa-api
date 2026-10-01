@@ -19,16 +19,55 @@ not configured, every public method returns a deterministic echo answer via
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import time
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .config import AzureEnvironmentConfig
 
 logger = logging.getLogger("apps.azure")
 
+# Shared pool for running each individual tool call under a hard timeout (see
+# _TOOL_CALL_TIMEOUT_SECONDS below). Module-level and never explicitly shut
+# down: a timed-out call's thread is abandoned, not killed (Python can't
+# force-kill a thread), so reusing one pool avoids blocking on
+# ThreadPoolExecutor.shutdown(wait=True) for a call that will never return.
+_TOOL_CALL_POOL = concurrent.futures.ThreadPoolExecutor(
+    max_workers=8, thread_name_prefix="dvsa-tool-call"
+)
+# Hard per-call timeout for a single tool_executor(tool_call) invocation.
+# Confirmed live: a chat request can hang *forever* with no further log
+# output at all — past every other deadline/round-cap below — because those
+# are only checked *between* loop iterations; a single blocking call inside
+# one iteration (an analyzer/Vision/Perplexity HTTP call with no timeout of
+# its own, especially under concurrent load that can exhaust a connection
+# pool) is never interrupted by them. Running each call through a bounded
+# future closes that gap regardless of which underlying call is stuck.
+_TOOL_CALL_TIMEOUT_SECONDS = 25
+
 _AGENT_MAX_OUTPUT_TOKENS = 10000
+# Hard wall-clock cap on one agent run (create thread -> poll -> submit tool
+# outputs -> ...). Defense in depth against a run that never settles, so a
+# single chat request can't hang indefinitely.
+_AGENT_MAX_RUN_SECONDS = 90
+# Shared wall-clock budget for one whole synthesize_from_chat_agent() chat
+# turn, covering run_function_tools + run_analyzer_tools + the final
+# narration run together (run_connected_agent is a single bounded Search
+# call, not a poll loop, so it isn't part of this budget). Deliberately
+# smaller than _AGENT_MAX_RUN_SECONDS: letting each of up to three sequential
+# runs independently spend the full per-run budget is what let one chat turn
+# take several minutes even after each individual run was capped.
+_CHAT_TURN_MAX_SECONDS = 75
+# Hard cap on requires_action rounds within one run, independent of wall
+# clock: a model stuck retrying a broken tool call burns a full model turn
+# per round (several seconds), so without this it can eat most of
+# _AGENT_MAX_RUN_SECONDS before that deadline ever fires.
+_AGENT_MAX_TOOL_ROUNDS = 6
+# Consecutive failures of the *same* function name before we tell the model
+# outright to stop calling it and answer with what it already has.
+_MAX_REPEATED_TOOL_FAILURES = 2
 
 
 def _json_safe(o: Any) -> Any:
@@ -53,6 +92,12 @@ def _coerce_tool_output(output: Any) -> Optional[str]:
         return json.dumps(output, default=_json_safe)
     except TypeError:
         return str(output)
+
+
+def _account_video_context(account_id: Optional[str], video_id: Optional[str]) -> str:
+    """The ``[Context: ...]`` line every team member's prompt is prefixed
+    with, so it knows which account/video to scope its tools/search to."""
+    return f"[Context: account_id={account_id}, video_id={video_id}]"
 
 
 class FoundryAgents:
@@ -146,11 +191,19 @@ class FoundryAgents:
 
     # ----- shared run-loop ----------------------------------------------
     def _run_agent(self, agents_client, agent, content: str,
-                   tool_executor: Optional[Callable[[Any], Optional[str]]] = None) -> Optional[str]:
+                   tool_executor: Optional[Callable[[Any], Optional[str]]] = None,
+                   deadline: Optional[float] = None) -> Optional[str]:
         """Create a thread, run ``agent`` over ``content``, return its answer.
 
         ``tool_executor(tool_call) -> output|None`` handles a single tool call
         (function / AI-search / OpenAPI). Mirrors the source run loops.
+
+        ``deadline`` is a ``time.monotonic()`` timestamp this run must not run
+        past — pass one in to share a single wall-clock budget across several
+        sequential ``_run_agent`` calls (see ``synthesize_from_chat_agent``,
+        which otherwise lets up to four independent ``_AGENT_MAX_RUN_SECONDS``
+        budgets compound into several minutes for one chat turn). Defaults to
+        a fresh ``_AGENT_MAX_RUN_SECONDS``-wide budget when not given.
         """
         from azure.ai.agents.models import (  # noqa: PLC0415
             ListSortOrder, SubmitToolOutputsAction, ToolOutput,
@@ -160,7 +213,29 @@ class FoundryAgents:
         thread = agents_client.threads.create()
         agents_client.messages.create(thread_id=thread.id, role="user", content=content)
         run = agents_client.runs.create(thread_id=thread.id, agent_id=agent.id)
+        if deadline is None:
+            deadline = time.monotonic() + _AGENT_MAX_RUN_SECONDS
+        tool_rounds = 0
+        # Per-function consecutive-failure count. A cheap model with a dozen
+        # overlapping, non-strict tool schemas (confirmed live: gpt-4o-mini
+        # calling describe_frame with frame_index, then scene_img — kwargs
+        # that belong to *other* registered tools) can fail the same function
+        # repeatedly without ever converging on its real signature; each
+        # round still costs a full model turn, so this can't be solved by the
+        # wall-clock deadline alone without burning most of that budget.
+        failure_streaks: Dict[str, int] = {}
         while run.status in ("queued", "in_progress", "requires_action"):
+            if time.monotonic() > deadline:
+                # Defense in depth: a run that never settles (a looping tool
+                # call, a stuck model, ...) must not hang the chat request
+                # forever. Cancel it and return whatever we have so far.
+                logger.warning("Agent run %s exceeded %ss; cancelling.",
+                               run.id, _AGENT_MAX_RUN_SECONDS)
+                try:
+                    agents_client.runs.cancel(thread_id=thread.id, run_id=run.id)
+                except Exception:  # noqa: BLE001
+                    pass
+                break
             time.sleep(1)
             run = agents_client.runs.get(thread_id=thread.id, run_id=run.id)
             if run.status == "requires_action" and isinstance(run.required_action, SubmitToolOutputsAction):
@@ -168,22 +243,70 @@ class FoundryAgents:
                 if not tool_calls:
                     agents_client.runs.cancel(thread_id=thread.id, run_id=run.id)
                     break
+                tool_rounds += 1
+                if tool_rounds > _AGENT_MAX_TOOL_ROUNDS:
+                    logger.warning("Agent run %s exceeded %s tool-call rounds; cancelling.",
+                                   run.id, _AGENT_MAX_TOOL_ROUNDS)
+                    try:
+                        agents_client.runs.cancel(thread_id=thread.id, run_id=run.id)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    break
                 tool_outputs = []
                 for tool_call in tool_calls:
+                    # Every pending tool_call must get a ToolOutput — including
+                    # when tool_executor is absent, the tool raises, or it
+                    # legitimately returns None — or the run's required_action
+                    # never clears: Foundry keeps reporting the *same* pending
+                    # tool_call on every poll and this loop re-executes it
+                    # forever (confirmed live: a failing ask_perplexity call
+                    # looping every ~1s, never returning to the caller).
                     if tool_executor is None:
-                        continue
-                    try:
-                        output = _coerce_tool_output(tool_executor(tool_call))
-                    except Exception as exc:  # noqa: BLE001
-                        logger.info("Error executing tool_call %s: %s", tool_call.id, exc)
-                        continue
-                    if output is not None:
+                        output = ""
+                    else:
+                        future = _TOOL_CALL_POOL.submit(tool_executor, tool_call)
+                        try:
+                            output = _coerce_tool_output(
+                                future.result(timeout=_TOOL_CALL_TIMEOUT_SECONDS)
+                            ) or ""
+                        except concurrent.futures.TimeoutError:
+                            logger.warning(
+                                "Tool call %s timed out after %ss; abandoning it (it may "
+                                "keep running in the background) rather than blocking "
+                                "this chat request indefinitely.",
+                                tool_call.id, _TOOL_CALL_TIMEOUT_SECONDS,
+                            )
+                            output = (
+                                f"Error: this tool call took longer than "
+                                f"{_TOOL_CALL_TIMEOUT_SECONDS}s and was abandoned."
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.info("Error executing tool_call %s: %s", tool_call.id, exc)
+                            output = f"Error: {exc}"
+                    name = getattr(getattr(tool_call, "function", None), "name", None)
+                    # The SDK's own FunctionTool.execute() already catches a
+                    # bad-argument TypeError and returns {"error": "..."} —
+                    # it never raises — so this is the only place such
+                    # failures are visible to flag a repeat.
+                    is_error = output.startswith("Error") or '"error"' in output
+                    if name:
+                        if is_error:
+                            failure_streaks[name] = failure_streaks.get(name, 0) + 1
+                            if failure_streaks[name] >= _MAX_REPEATED_TOOL_FAILURES:
+                                output += (
+                                    f" You have now called {name} with invalid "
+                                    "arguments multiple times in a row. Stop "
+                                    "calling it and answer the question using "
+                                    "only the information already gathered."
+                                )
+                        else:
+                            failure_streaks[name] = 0
+                    if output:
                         answer = output
-                        tool_outputs.append(ToolOutput(tool_call_id=tool_call.id, output=output))
-                if tool_outputs:
-                    agents_client.runs.submit_tool_outputs(
-                        thread_id=thread.id, run_id=run.id, tool_outputs=tool_outputs
-                    )
+                    tool_outputs.append(ToolOutput(tool_call_id=tool_call.id, output=output))
+                agents_client.runs.submit_tool_outputs(
+                    thread_id=thread.id, run_id=run.id, tool_outputs=tool_outputs
+                )
         messages = agents_client.messages.list(thread_id=thread.id, order=ListSortOrder.ASCENDING)
         for msg in messages:
             if msg.text_messages:
@@ -191,7 +314,8 @@ class FoundryAgents:
         return answer
 
     # ----- function-tool agents -----------------------------------------
-    def _run_function_agent(self, query_text, agent_name, functions_set) -> Optional[str]:
+    def _run_function_agent(self, query_text, agent_name, functions_set,
+                            account_id=None, video_id=None, deadline=None) -> Optional[str]:
         from azure.ai.agents.models import (  # noqa: PLC0415
             FunctionTool, RequiredFunctionToolCall,
         )
@@ -201,8 +325,23 @@ class FoundryAgents:
         instructions = (
             "You are a drone aerial image analytics assistant that answers the "
             "question by finding a suitable function, passing the question to it, "
-            "evaluating it and relaying the response. If you can't find a suitable "
-            "function, default to the ask_perplexity function in your tools."
+            "evaluating it and relaying the response. For questions about what is "
+            "visible in the scene — description, notable objects/events, or "
+            "counting things by appearance (e.g. how many railway tracks or land "
+            "bridges) — call describe_frame for *every* extracted frame URL/index "
+            "listed in the context below, not just the first one, and combine what "
+            "you see across all of them before answering; a feature may only be "
+            "visible in some frames. Only if describe_frame can't answer, fall back "
+            "to ask_perplexity with its frames_list argument set to the same "
+            "extracted frame indices from the context. "
+            "Every user message is preceded by a '[Context: account_id=..., "
+            "video_id=...]' line and, when frames have been extracted for that "
+            "video, a list of their real URLs/indices — always pass those exact "
+            "account_id/video_id values and those exact frame URLs/indices to your "
+            "tools (get_sas_url_template, describe_frame, ask_perplexity, "
+            "agentic_retrieval, ...). Never ask the user to upload an image or "
+            "supply a URL, and never invent or guess an image URL or frame number "
+            "yourself."
         )
         with agents_client:
             agent = self._find_agent(agents_client, agent_name)
@@ -212,99 +351,176 @@ class FoundryAgents:
                     instructions=instructions, tools=functions.definitions,
                     tool_resources=functions.resources, top_p=1,
                 )
+            elif agent.instructions != instructions:
+                # Keep a previously-created agent's instructions in sync (e.g.
+                # agents created before this grounding context was added).
+                agent = agents_client.update_agent(agent.id, instructions=instructions)
 
             def _exec(tool_call):
                 if isinstance(tool_call, RequiredFunctionToolCall):
                     return functions.execute(tool_call)
                 return None
 
-            return self._run_agent(agents_client, agent, query_text, _exec)
+            content = query_text
+            if account_id:
+                from .analyzer import curated_frame_urls  # noqa: PLC0415
 
-    def run_function_tools(self, query_text, account_id) -> Optional[str]:
+                lines = [_account_video_context(account_id, video_id)]
+                frame_urls = curated_frame_urls(account_id, video_id)
+                if frame_urls:
+                    lines.append(
+                        "[Extracted frames for this video — pass one of these URLs "
+                        "directly to download_image/describe_frame, or their "
+                        "0-based indices as a comma-separated frames_list to "
+                        "ask_perplexity (e.g. \"0,1,2\"). Check all of them, not "
+                        "just the first.]"
+                    )
+                    lines.extend(f"{i}: {url}" for i, url in enumerate(frame_urls))
+                else:
+                    lines.append(
+                        "[No frames have been extracted yet for this video — tell "
+                        "the user to click \"Extract Frames\" in the console "
+                        "first, rather than guessing or asking for an upload.]"
+                    )
+                content = "\n".join(lines) + f"\n{query_text}"
+            return self._run_agent(agents_client, agent, content, _exec, deadline=deadline)
+
+    def run_function_tools(self, query_text, account_id, video_id=None, deadline=None) -> Optional[str]:
         if not self.configured:
             return self._echo(query_text)
         from .analyzer import image_user_functions  # noqa: PLC0415
 
-        return self._run_function_agent(query_text, self.config.fn_agent_name, image_user_functions())
+        return self._run_function_agent(query_text, self.config.fn_agent_name, image_user_functions(),
+                                        account_id=account_id, video_id=video_id, deadline=deadline)
 
-    def run_analyzer_tools(self, query_text, account_id) -> Optional[str]:
+    def run_analyzer_tools(self, query_text, account_id, video_id=None, deadline=None) -> Optional[str]:
         if not self.configured:
             return self._echo(query_text)
         from .analyzer import analyzer_functions  # noqa: PLC0415
 
-        return self._run_function_agent(query_text, self.config.tool_agent_name, analyzer_functions())
+        return self._run_function_agent(query_text, self.config.tool_agent_name, analyzer_functions(),
+                                        account_id=account_id, video_id=video_id, deadline=deadline)
 
     # ----- AI-search knowledge agent ------------------------------------
-    def run_connected_agent(self, query_text, account_id, index_name=None) -> Optional[str]:
-        """Create/reuse a KnowledgeAgent over the index and retrieve an answer."""
+    def run_connected_agent(self, query_text, account_id, video_id=None,
+                            index_name=None) -> Optional[str]:
+        """Create/reuse a KnowledgeAgent over the index and retrieve an answer.
+
+        Scoped to one video: when ``video_id`` is not given it defaults to the
+        account's latest :class:`~apps.videos.models.VideoEntity`, matching
+        :func:`core.azure.analyzer.get_sas_url_template`'s convention. Scoping
+        uses a structured OData ``filter_add_on`` (account_id, plus the frame
+        blob path's ``video_id`` segment) — enforced by the index itself,
+        rather than asking the retrieval model to interpret free-text
+        instructions.
+
+        Targets indexes directly (``KnowledgeAgentTargetIndex``/
+        ``KnowledgeAgentIndexParams``): the pinned ``azure-search-documents``
+        (11.6.0b12) predates the separate "knowledge source" resource some
+        newer preview SDKs expose, so that abstraction isn't available here.
+        """
         if not self.configured or not self.config.search_data_plane_ready():
             return self._echo(query_text)
+        if not video_id:
+            try:
+                from apps.videos.models import VideoEntity  # noqa: PLC0415
+
+                video_id = str(VideoEntity.objects.filter(account_id=account_id).last().id)
+            except Exception as exc:  # noqa: BLE001
+                logger.info("run_connected_agent: could not resolve latest video: %s", exc)
+                video_id = None
         from azure.core.credentials import AzureKeyCredential  # noqa: PLC0415
         from azure.search.documents.indexes import SearchIndexClient  # noqa: PLC0415
         from azure.search.documents.indexes.models import (  # noqa: PLC0415
             AzureOpenAIVectorizerParameters, KnowledgeAgent,
-            KnowledgeAgentAzureOpenAIModel, KnowledgeAgentOutputConfiguration,
-            KnowledgeAgentOutputConfigurationModality, KnowledgeAgentRequestLimits,
-            KnowledgeSourceReference, SearchIndexKnowledgeSource,
-            SearchIndexKnowledgeSourceParameters,
+            KnowledgeAgentAzureOpenAIModel, KnowledgeAgentRequestLimits,
+            KnowledgeAgentTargetIndex,
         )
         from azure.search.documents.agent import KnowledgeAgentRetrievalClient  # noqa: PLC0415
         from azure.search.documents.agent.models import (  # noqa: PLC0415
-            KnowledgeAgentMessage, KnowledgeAgentMessageTextContent,
-            KnowledgeAgentRetrievalRequest,
+            KnowledgeAgentIndexParams, KnowledgeAgentMessage,
+            KnowledgeAgentMessageTextContent, KnowledgeAgentRetrievalRequest,
         )
 
         c = self.config
         index_name = index_name or c.search_index_name
-        cred = AzureKeyCredential(c.search_admin_key)
-        index_client = SearchIndexClient(endpoint=c.search_endpoint, credential=cred)
-        agent = next((a for a in index_client.list_agents() if a.name == c.search_agent_name), None)
-        if agent is None:
-            if not any(s.name == index_name for s in index_client.list_knowledge_sources()):
-                index_client.create_knowledge_source(
-                    knowledge_source=SearchIndexKnowledgeSource(
-                        name=index_name,
-                        search_index_parameters=SearchIndexKnowledgeSourceParameters(
-                            search_index_name=index_name,
-                            source_data_select="id,account_id,description,location,created",
-                        ),
-                    ),
-                    api_version=c.search_api_version,
-                )
+        try:
+            cred = AzureKeyCredential(c.search_admin_key)
+            index_client = SearchIndexClient(endpoint=c.search_endpoint, credential=cred)
+            # Azure AI Search builds its own
+            # "{resourceUri}/openai/deployments/{deploymentId}/..." path (the
+            # same convention _azure_openai_embedding uses), so resourceUri
+            # must be the bare resource host. c.openai_endpoint may carry the
+            # newer unified "/openai/v1" suffix (e.g. for the openai SDK) —
+            # strip it defensively rather than 404 against the model.
+            resource_url = (c.openai_endpoint or "").rstrip("/")
+            if resource_url.lower().endswith("/openai/v1"):
+                resource_url = resource_url[: -len("/openai/v1")]
             model = KnowledgeAgentAzureOpenAIModel(
                 azure_open_ai_parameters=AzureOpenAIVectorizerParameters(
-                    resource_url=c.openai_endpoint, deployment_name=c.gpt_deployment,
+                    resource_url=resource_url, deployment_name=c.gpt_deployment,
                     model_name=c.gpt_model, api_key=c.openai_api_key,
                 )
             )
-            agent = KnowledgeAgent(
-                name=c.search_agent_name, models=[model],
-                knowledge_sources=[KnowledgeSourceReference(
-                    name=index_name, include_references=True,
-                    include_reference_source_data=False, always_query_soure=True,
-                    max_sub_queries=10, reranker_threshold=2.5,
-                )],
-                request_limits=KnowledgeAgentRequestLimits(max_output_size=_AGENT_MAX_OUTPUT_TOKENS),
-                retrieval_instructions=(
-                    "You are an aerial drone image analyst. If an account_id is "
-                    "provided with the query, select only images whose account_id "
-                    "matches and answer from those images and their vectors/fields."
-                ),
-                output_configuration=KnowledgeAgentOutputConfiguration(
-                    modality=KnowledgeAgentOutputConfigurationModality.ANSWER_SYNTHESIS,
-                    include_activity=True,
-                ),
-            )
-            index_client.create_or_update_agent(agent=agent)
+            # Only create when missing, not an unconditional upsert on every
+            # call: confirmed live that re-asserting this agent every request
+            # keeps Azure AI Search's auto-managed backing knowledge source
+            # (which a KnowledgeAgent targeting an index directly causes the
+            # service to create/maintain) alive and churning, which then
+            # conflicts with ensure_search_index's plain schema-only
+            # create_or_update_index (semantic-config "removal" refused: see
+            # ensure_search_index in provisioning.py). The agent's
+            # model/target-index config is static per deployment, so there's
+            # nothing to refresh by re-asserting it every chat turn.
+            try:
+                existing = index_client.get_agent(c.search_agent_name)
+            except Exception:  # noqa: BLE001
+                existing = None
+            if existing is None:
+                agent = KnowledgeAgent(
+                    name=c.search_agent_name, models=[model],
+                    target_indexes=[KnowledgeAgentTargetIndex(
+                        index_name=index_name, default_include_reference_source_data=True,
+                        default_reranker_threshold=2.5,
+                    )],
+                    request_limits=KnowledgeAgentRequestLimits(max_output_size=_AGENT_MAX_OUTPUT_TOKENS),
+                )
+                index_client.create_or_update_agent(agent=agent)
 
-        retrieval_client = KnowledgeAgentRetrievalClient(
-            endpoint=c.search_endpoint, agent_name=c.search_agent_name, credential=cred
-        )
-        req = KnowledgeAgentRetrievalRequest(messages=[
-            KnowledgeAgentMessage(role="user", content=[KnowledgeAgentMessageTextContent(text=query_text)])
-        ])
-        result = retrieval_client.retrieve(retrieval_request=req, api_version=c.search_api_version)
-        return result.response[0].content[0].text
+            retrieval_client = KnowledgeAgentRetrievalClient(
+                endpoint=c.search_endpoint, agent_name=c.search_agent_name, credential=cred
+            )
+            content_text = query_text
+            target_index_params = None
+            if account_id:
+                content_text = f"{_account_video_context(account_id, video_id)}\n{query_text}"
+                filter_add_on = f"account_id eq '{account_id}'"
+                if video_id:
+                    filter_add_on += f" and startswith(path, '{account_id}/images/{video_id}/')"
+                target_index_params = [KnowledgeAgentIndexParams(
+                    index_name=index_name, filter_add_on=filter_add_on,
+                )]
+            req = KnowledgeAgentRetrievalRequest(
+                messages=[KnowledgeAgentMessage(
+                    role="user", content=[KnowledgeAgentMessageTextContent(text=content_text)],
+                )],
+                target_index_params=target_index_params,
+            )
+            # No explicit api_version override here: the pinned
+            # azure-search-documents (11.6.0b12) retrieval REST layer only
+            # recognizes its own default (DEFAULT_VERSION, currently
+            # 2025-05-01-preview) — c.search_api_version (2025-08-01-preview)
+            # is for a newer preview and gets rejected with "The version
+            # indicated by the api-version query string parameter does not
+            # exist."
+            result = retrieval_client.retrieve(retrieval_request=req)
+            return result.response[0].content[0].text
+        except Exception as exc:  # noqa: BLE001
+            # A knowledge-agent-side failure (Search/model misconfiguration,
+            # transient outage, ...) must not take down the whole synthesis —
+            # run_function_tools/run_analyzer_tools can still answer.
+            logger.warning("run_connected_agent failed: %s", exc)
+            return None
 
     def knowledge_base_search(self, query_text, account_id) -> Optional[str]:
         """Search-tool agent with vector-semantic-hybrid filter on account_id."""
@@ -363,12 +579,54 @@ class FoundryAgents:
             f"[Connected Agent Output]:\n{delegated}\n"
         )
 
-    def synthesize_from_chat_agent(self, query_text, account_id) -> str:
-        """Consolidate analyzer-tool output into a smooth narrative via chat agent."""
-        delegated = self.run_analyzer_tools(query_text, account_id)
-        synthesis = f"[User]: {query_text}\n\n[Connected Agent Output]:\n{delegated}\n"
+    def synthesize_from_chat_agent(self, query_text, account_id, video_id=None) -> str:
+        """Consolidate the connected team's output into a smooth narrative.
+
+        Runs all three real team members — the native AI Search knowledge
+        agent (vector search + automatic query decomposition over every
+        extracted frame's stored caption/tags/vector), the connected function
+        agent (Perplexity/Qwen/agentic_retrieval), and the CV/analyzer tool
+        agent — then has ``chat-agent-in-a-team`` narrate across all three.
+
+        All three (plus the final narration run) share *one*
+        ``_CHAT_TURN_MAX_SECONDS`` wall-clock budget rather than each getting
+        its own independent ``_AGENT_MAX_RUN_SECONDS`` — otherwise up to four
+        sequential runs could each burn their full budget and one chat turn
+        could take several minutes even though no single run hangs (confirmed
+        live: the console's Ask stayed on "thinking…" well past any single
+        run's cap). Once the shared budget is gone, remaining team members are
+        skipped rather than started, so the request still returns promptly
+        with whatever the team already produced.
+        """
+        deadline = time.monotonic() + _CHAT_TURN_MAX_SECONDS
+        search = self.run_connected_agent(query_text, account_id, video_id)
+
+        functions = None
+        if time.monotonic() < deadline:
+            functions = self.run_function_tools(query_text, account_id, video_id, deadline=deadline)
+        else:
+            logger.warning("synthesize_from_chat_agent: skipping run_function_tools, budget exhausted")
+
+        analyzer = None
+        if time.monotonic() < deadline:
+            analyzer = self.run_analyzer_tools(query_text, account_id, video_id, deadline=deadline)
+        else:
+            logger.warning("synthesize_from_chat_agent: skipping run_analyzer_tools, budget exhausted")
+
+        synthesis = (
+            f"[User]: {query_text}\n\n"
+            f"[Knowledge Search Agent Output]:\n{search}\n\n"
+            f"[Connected Function Agent Output]:\n{functions}\n\n"
+            f"[Tool Agent Output]:\n{analyzer}\n"
+        )
         if not self.configured:
             return self._echo(synthesis)
+        if time.monotonic() >= deadline:
+            # No budget left for the final narration pass either — return the
+            # raw synthesis rather than starting a run that would just be cut
+            # off immediately.
+            logger.warning("synthesize_from_chat_agent: skipping final narration, budget exhausted")
+            return synthesis
         from azure.ai.agents.models import (  # noqa: PLC0415
             OpenApiConnectionAuthDetails, OpenApiTool, RunStepOpenAPIToolCall,
         )
@@ -396,9 +654,9 @@ class FoundryAgents:
                         return api.execute(tool_call)
                     return None
 
-                answer = self._run_agent(agents_client, agent, synthesis, _exec)
+                answer = self._run_agent(agents_client, agent, synthesis, _exec, deadline=deadline)
             else:
-                answer = self._run_agent(agents_client, agent, synthesis, None)
+                answer = self._run_agent(agents_client, agent, synthesis, None, deadline=deadline)
         return answer or synthesis
 
     def file_agent_search(self, query_text, account_id) -> Optional[str]:
