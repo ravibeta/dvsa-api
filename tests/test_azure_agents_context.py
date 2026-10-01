@@ -36,7 +36,7 @@ def test_context_prefix_injected_without_frames(monkeypatch):
     fake_client.create_agent.return_value = new_agent
     captured = {}
 
-    def fake_run_agent(agents_client, agent, content, tool_executor):
+    def fake_run_agent(agents_client, agent, content, tool_executor, deadline=None):
         captured["content"] = content
         return "ok"
 
@@ -66,7 +66,7 @@ def test_context_includes_curated_frame_urls(monkeypatch):
     fake_client.create_agent.return_value = SimpleNamespace(id="agent-1", instructions="x")
     captured = {}
 
-    def fake_run_agent(agents_client, agent, content, tool_executor):
+    def fake_run_agent(agents_client, agent, content, tool_executor, deadline=None):
         captured["content"] = content
         return "ok"
 
@@ -92,7 +92,7 @@ def test_context_prefix_omitted_without_account_id(monkeypatch):
     fake_client.create_agent.return_value = SimpleNamespace(id="agent-1", instructions="x")
     captured = {}
 
-    def fake_run_agent(agents_client, agent, content, tool_executor):
+    def fake_run_agent(agents_client, agent, content, tool_executor, deadline=None):
         captured["content"] = content
         return "ok"
 
@@ -134,7 +134,8 @@ def test_run_function_tools_threads_video_id(monkeypatch):
     agents = _agents_obj()
     captured = {}
 
-    def fake_run_function_agent(query_text, agent_name, functions_set, account_id=None, video_id=None):
+    def fake_run_function_agent(query_text, agent_name, functions_set,
+                                account_id=None, video_id=None, deadline=None):
         captured.update(account_id=account_id, video_id=video_id)
         return "ok"
 
@@ -155,9 +156,9 @@ def test_synthesize_from_chat_agent_combines_all_three_team_members(monkeypatch)
     monkeypatch.setattr(agents, "run_connected_agent",
                         lambda q, a, v=None, **k: "SEARCH_MARKER")
     monkeypatch.setattr(agents, "run_function_tools",
-                        lambda q, a, v=None: "FUNCTIONS_MARKER")
+                        lambda q, a, v=None, **k: "FUNCTIONS_MARKER")
     monkeypatch.setattr(agents, "run_analyzer_tools",
-                        lambda q, a, v=None: "ANALYZER_MARKER")
+                        lambda q, a, v=None, **k: "ANALYZER_MARKER")
     monkeypatch.setattr(agents, "_echo", lambda text: text)
 
     result = agents.synthesize_from_chat_agent("How many land bridges?", "5", video_id="2")

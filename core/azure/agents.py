@@ -33,6 +33,14 @@ _AGENT_MAX_OUTPUT_TOKENS = 10000
 # outputs -> ...). Defense in depth against a run that never settles, so a
 # single chat request can't hang indefinitely.
 _AGENT_MAX_RUN_SECONDS = 90
+# Shared wall-clock budget for one whole synthesize_from_chat_agent() chat
+# turn, covering run_function_tools + run_analyzer_tools + the final
+# narration run together (run_connected_agent is a single bounded Search
+# call, not a poll loop, so it isn't part of this budget). Deliberately
+# smaller than _AGENT_MAX_RUN_SECONDS: letting each of up to three sequential
+# runs independently spend the full per-run budget is what let one chat turn
+# take several minutes even after each individual run was capped.
+_CHAT_TURN_MAX_SECONDS = 75
 # Hard cap on requires_action rounds within one run, independent of wall
 # clock: a model stuck retrying a broken tool call burns a full model turn
 # per round (several seconds), so without this it can eat most of
@@ -164,11 +172,19 @@ class FoundryAgents:
 
     # ----- shared run-loop ----------------------------------------------
     def _run_agent(self, agents_client, agent, content: str,
-                   tool_executor: Optional[Callable[[Any], Optional[str]]] = None) -> Optional[str]:
+                   tool_executor: Optional[Callable[[Any], Optional[str]]] = None,
+                   deadline: Optional[float] = None) -> Optional[str]:
         """Create a thread, run ``agent`` over ``content``, return its answer.
 
         ``tool_executor(tool_call) -> output|None`` handles a single tool call
         (function / AI-search / OpenAPI). Mirrors the source run loops.
+
+        ``deadline`` is a ``time.monotonic()`` timestamp this run must not run
+        past — pass one in to share a single wall-clock budget across several
+        sequential ``_run_agent`` calls (see ``synthesize_from_chat_agent``,
+        which otherwise lets up to four independent ``_AGENT_MAX_RUN_SECONDS``
+        budgets compound into several minutes for one chat turn). Defaults to
+        a fresh ``_AGENT_MAX_RUN_SECONDS``-wide budget when not given.
         """
         from azure.ai.agents.models import (  # noqa: PLC0415
             ListSortOrder, SubmitToolOutputsAction, ToolOutput,
@@ -178,7 +194,8 @@ class FoundryAgents:
         thread = agents_client.threads.create()
         agents_client.messages.create(thread_id=thread.id, role="user", content=content)
         run = agents_client.runs.create(thread_id=thread.id, agent_id=agent.id)
-        deadline = time.monotonic() + _AGENT_MAX_RUN_SECONDS
+        if deadline is None:
+            deadline = time.monotonic() + _AGENT_MAX_RUN_SECONDS
         tool_rounds = 0
         # Per-function consecutive-failure count. A cheap model with a dozen
         # overlapping, non-strict tool schemas (confirmed live: gpt-4o-mini
@@ -265,7 +282,7 @@ class FoundryAgents:
 
     # ----- function-tool agents -----------------------------------------
     def _run_function_agent(self, query_text, agent_name, functions_set,
-                            account_id=None, video_id=None) -> Optional[str]:
+                            account_id=None, video_id=None, deadline=None) -> Optional[str]:
         from azure.ai.agents.models import (  # noqa: PLC0415
             FunctionTool, RequiredFunctionToolCall,
         )
@@ -333,23 +350,23 @@ class FoundryAgents:
                         "first, rather than guessing or asking for an upload.]"
                     )
                 content = "\n".join(lines) + f"\n{query_text}"
-            return self._run_agent(agents_client, agent, content, _exec)
+            return self._run_agent(agents_client, agent, content, _exec, deadline=deadline)
 
-    def run_function_tools(self, query_text, account_id, video_id=None) -> Optional[str]:
+    def run_function_tools(self, query_text, account_id, video_id=None, deadline=None) -> Optional[str]:
         if not self.configured:
             return self._echo(query_text)
         from .analyzer import image_user_functions  # noqa: PLC0415
 
         return self._run_function_agent(query_text, self.config.fn_agent_name, image_user_functions(),
-                                        account_id=account_id, video_id=video_id)
+                                        account_id=account_id, video_id=video_id, deadline=deadline)
 
-    def run_analyzer_tools(self, query_text, account_id, video_id=None) -> Optional[str]:
+    def run_analyzer_tools(self, query_text, account_id, video_id=None, deadline=None) -> Optional[str]:
         if not self.configured:
             return self._echo(query_text)
         from .analyzer import analyzer_functions  # noqa: PLC0415
 
         return self._run_function_agent(query_text, self.config.tool_agent_name, analyzer_functions(),
-                                        account_id=account_id, video_id=video_id)
+                                        account_id=account_id, video_id=video_id, deadline=deadline)
 
     # ----- AI-search knowledge agent ------------------------------------
     def run_connected_agent(self, query_text, account_id, video_id=None,
@@ -526,10 +543,32 @@ class FoundryAgents:
         extracted frame's stored caption/tags/vector), the connected function
         agent (Perplexity/Qwen/agentic_retrieval), and the CV/analyzer tool
         agent — then has ``chat-agent-in-a-team`` narrate across all three.
+
+        All three (plus the final narration run) share *one*
+        ``_CHAT_TURN_MAX_SECONDS`` wall-clock budget rather than each getting
+        its own independent ``_AGENT_MAX_RUN_SECONDS`` — otherwise up to four
+        sequential runs could each burn their full budget and one chat turn
+        could take several minutes even though no single run hangs (confirmed
+        live: the console's Ask stayed on "thinking…" well past any single
+        run's cap). Once the shared budget is gone, remaining team members are
+        skipped rather than started, so the request still returns promptly
+        with whatever the team already produced.
         """
+        deadline = time.monotonic() + _CHAT_TURN_MAX_SECONDS
         search = self.run_connected_agent(query_text, account_id, video_id)
-        functions = self.run_function_tools(query_text, account_id, video_id)
-        analyzer = self.run_analyzer_tools(query_text, account_id, video_id)
+
+        functions = None
+        if time.monotonic() < deadline:
+            functions = self.run_function_tools(query_text, account_id, video_id, deadline=deadline)
+        else:
+            logger.warning("synthesize_from_chat_agent: skipping run_function_tools, budget exhausted")
+
+        analyzer = None
+        if time.monotonic() < deadline:
+            analyzer = self.run_analyzer_tools(query_text, account_id, video_id, deadline=deadline)
+        else:
+            logger.warning("synthesize_from_chat_agent: skipping run_analyzer_tools, budget exhausted")
+
         synthesis = (
             f"[User]: {query_text}\n\n"
             f"[Knowledge Search Agent Output]:\n{search}\n\n"
@@ -538,6 +577,12 @@ class FoundryAgents:
         )
         if not self.configured:
             return self._echo(synthesis)
+        if time.monotonic() >= deadline:
+            # No budget left for the final narration pass either — return the
+            # raw synthesis rather than starting a run that would just be cut
+            # off immediately.
+            logger.warning("synthesize_from_chat_agent: skipping final narration, budget exhausted")
+            return synthesis
         from azure.ai.agents.models import (  # noqa: PLC0415
             OpenApiConnectionAuthDetails, OpenApiTool, RunStepOpenAPIToolCall,
         )
@@ -565,9 +610,9 @@ class FoundryAgents:
                         return api.execute(tool_call)
                     return None
 
-                answer = self._run_agent(agents_client, agent, synthesis, _exec)
+                answer = self._run_agent(agents_client, agent, synthesis, _exec, deadline=deadline)
             else:
-                answer = self._run_agent(agents_client, agent, synthesis, None)
+                answer = self._run_agent(agents_client, agent, synthesis, None, deadline=deadline)
         return answer or synthesis
 
     def file_agent_search(self, query_text, account_id) -> Optional[str]:
