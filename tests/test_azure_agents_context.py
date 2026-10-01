@@ -191,8 +191,7 @@ def test_run_connected_agent_defaults_video_id_and_prefixes_context(monkeypatch,
     agents = FoundryAgents(config)
 
     fake_index_client = MagicMock()
-    fake_index_client.list_agents.return_value = []
-    fake_index_client.list_knowledge_sources.return_value = []
+    fake_index_client.get_agent.side_effect = Exception("not found")
 
     fake_retrieval_client = MagicMock()
     fake_response_item = SimpleNamespace(content=[SimpleNamespace(text="search result")])
@@ -240,6 +239,7 @@ def test_run_connected_agent_strips_openai_v1_suffix(monkeypatch, db):
     agents = FoundryAgents(config)
 
     fake_index_client = MagicMock()
+    fake_index_client.get_agent.side_effect = Exception("not found")
     fake_retrieval_client = MagicMock()
     fake_retrieval_client.retrieve.return_value = SimpleNamespace(
         response=[SimpleNamespace(content=[SimpleNamespace(text="ok")])]
@@ -252,6 +252,45 @@ def test_run_connected_agent_strips_openai_v1_suffix(monkeypatch, db):
     sent_agent = fake_index_client.create_or_update_agent.call_args.kwargs["agent"]
     resource_url = sent_agent.models[0].azure_open_ai_parameters.resource_url
     assert resource_url == "https://found-vision-1.openai.azure.com"
+
+
+def test_run_connected_agent_skips_upsert_when_agent_already_exists(monkeypatch, db):
+    """Live bug: re-asserting this agent on every call kept Azure AI Search's
+    auto-managed backing knowledge source alive/churning, which then made
+    ensure_search_index's plain schema-only update fail with "cannot remove
+    the semantic configuration" and 500 the *entire* chat request. The
+    agent's config is static, so there's nothing to refresh every call."""
+    import azure.search.documents.agent as agent_module
+    import azure.search.documents.indexes as indexes_module
+
+    config = SimpleNamespace(
+        project_endpoint="https://example.services.ai.azure.com/api/projects/p",
+        search_endpoint="https://search.example.net",
+        search_admin_key="admin-key",
+        search_index_name="dvsa-index",
+        search_agent_name="search-agent-in-a-team",
+        search_api_version="2025-08-01-preview",
+        openai_endpoint="https://found-vision-1.openai.azure.com",
+        openai_api_key="oai-key",
+        gpt_deployment="gpt-4o-mini",
+        gpt_model="gpt-4o-mini",
+    )
+    config.search_data_plane_ready = lambda: True
+    agents = FoundryAgents(config)
+
+    fake_index_client = MagicMock()
+    fake_index_client.get_agent.return_value = SimpleNamespace(name="search-agent-in-a-team")
+    fake_retrieval_client = MagicMock()
+    fake_retrieval_client.retrieve.return_value = SimpleNamespace(
+        response=[SimpleNamespace(content=[SimpleNamespace(text="ok")])]
+    )
+    monkeypatch.setattr(indexes_module, "SearchIndexClient", lambda **k: fake_index_client)
+    monkeypatch.setattr(agent_module, "KnowledgeAgentRetrievalClient", lambda **k: fake_retrieval_client)
+
+    result = agents.run_connected_agent("q", "5", video_id="2")
+
+    assert result == "ok"
+    fake_index_client.create_or_update_agent.assert_not_called()
 
 
 def test_run_connected_agent_failure_degrades_to_none(monkeypatch):

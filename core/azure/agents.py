@@ -429,19 +429,30 @@ class FoundryAgents:
                     model_name=c.gpt_model, api_key=c.openai_api_key,
                 )
             )
-            agent = KnowledgeAgent(
-                name=c.search_agent_name, models=[model],
-                target_indexes=[KnowledgeAgentTargetIndex(
-                    index_name=index_name, default_include_reference_source_data=True,
-                    default_reranker_threshold=2.5,
-                )],
-                request_limits=KnowledgeAgentRequestLimits(max_output_size=_AGENT_MAX_OUTPUT_TOKENS),
-            )
-            # create_or_update_agent is an idempotent upsert — call it every
-            # time so the agent's model/target-index config always reflects
-            # the current code/env rather than staying frozen at whatever it
-            # was the first time this ran.
-            index_client.create_or_update_agent(agent=agent)
+            # Only create when missing, not an unconditional upsert on every
+            # call: confirmed live that re-asserting this agent every request
+            # keeps Azure AI Search's auto-managed backing knowledge source
+            # (which a KnowledgeAgent targeting an index directly causes the
+            # service to create/maintain) alive and churning, which then
+            # conflicts with ensure_search_index's plain schema-only
+            # create_or_update_index (semantic-config "removal" refused: see
+            # ensure_search_index in provisioning.py). The agent's
+            # model/target-index config is static per deployment, so there's
+            # nothing to refresh by re-asserting it every chat turn.
+            try:
+                existing = index_client.get_agent(c.search_agent_name)
+            except Exception:  # noqa: BLE001
+                existing = None
+            if existing is None:
+                agent = KnowledgeAgent(
+                    name=c.search_agent_name, models=[model],
+                    target_indexes=[KnowledgeAgentTargetIndex(
+                        index_name=index_name, default_include_reference_source_data=True,
+                        default_reranker_threshold=2.5,
+                    )],
+                    request_limits=KnowledgeAgentRequestLimits(max_output_size=_AGENT_MAX_OUTPUT_TOKENS),
+                )
+                index_client.create_or_update_agent(agent=agent)
 
             retrieval_client = KnowledgeAgentRetrievalClient(
                 endpoint=c.search_endpoint, agent_name=c.search_agent_name, credential=cred
