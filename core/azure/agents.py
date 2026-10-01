@@ -19,6 +19,7 @@ not configured, every public method returns a deterministic echo answer via
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any, Callable, List, Optional
@@ -28,6 +29,30 @@ from .config import AzureEnvironmentConfig
 logger = logging.getLogger("apps.azure")
 
 _AGENT_MAX_OUTPUT_TOKENS = 10000
+
+
+def _json_safe(o: Any) -> Any:
+    """JSON ``default`` hook: coerce non-native objects (notably NumPy arrays
+    and scalars) into JSON-serializable values."""
+    tolist = getattr(o, "tolist", None)  # numpy.ndarray
+    if callable(tolist):
+        return tolist()
+    item = getattr(o, "item", None)  # numpy scalar
+    if callable(item):
+        return item()
+    return str(o)
+
+
+def _coerce_tool_output(output: Any) -> Optional[str]:
+    """Foundry ``submit_tool_outputs`` JSON-encodes every ToolOutput, which
+    throws on a NumPy ``ndarray`` returned by an analyzer function. Normalize
+    any tool return value into a JSON-safe string (strings/None pass through)."""
+    if output is None or isinstance(output, str):
+        return output
+    try:
+        return json.dumps(output, default=_json_safe)
+    except TypeError:
+        return str(output)
 
 
 class FoundryAgents:
@@ -148,7 +173,7 @@ class FoundryAgents:
                     if tool_executor is None:
                         continue
                     try:
-                        output = tool_executor(tool_call)
+                        output = _coerce_tool_output(tool_executor(tool_call))
                     except Exception as exc:  # noqa: BLE001
                         logger.info("Error executing tool_call %s: %s", tool_call.id, exc)
                         continue

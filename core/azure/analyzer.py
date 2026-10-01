@@ -37,9 +37,24 @@ def download_image(url):
     import numpy as np  # noqa: PLC0415
     import requests  # noqa: PLC0415
 
+    # The agent sometimes hallucinates a local/sandbox path (e.g.
+    # ``sandbox:/mnt/data/frame.jpg``); requests then raises an opaque
+    # "No connection adapters were found" error. Reject anything that is not an
+    # http(s) URL up front with an actionable message the agent can act on.
+    if not isinstance(url, str) or not url.lower().startswith(("http://", "https://")):
+        raise ValueError(
+            f"download_image expects an http(s) image URL, got {url!r}. "
+            "Use a frame SAS URL from the index, not a local or sandbox path."
+        )
     resp = requests.get(url, timeout=60)
+    resp.raise_for_status()
     arr = np.frombuffer(resp.content, np.uint8)
-    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    image = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError(
+            f"Could not decode an image from {url!r} (not an image or empty response)."
+        )
+    return image
 
 
 load_image_from_sas = download_image
