@@ -284,7 +284,8 @@ def curated_frame_urls(account_id, video_id=None, limit=20):
     return urls
 
 
-def describe_frame(account_id=None, video_id=None, frame_number=0, frame_url=None, url=None):
+def describe_frame(account_id=None, video_id=None, frame_number=0, frame_url=None,
+                   url=None, image_url=None, scene_img=None, frame_index=None):
     """Caption/tag one extracted frame via Azure AI Vision (function tool).
 
     Resolves the real frame SAS URL for ``account_id``/``video_id`` and runs
@@ -294,18 +295,30 @@ def describe_frame(account_id=None, video_id=None, frame_number=0, frame_url=Non
     questions from a real caption+tags+objects analysis without needing
     Perplexity or Qwen configured. Returns a compact JSON string.
 
-    Accepts a frame URL directly (``frame_url``/``url`` — the chat agent is
-    handed real curated-frame URLs, so it often passes one straight through
-    rather than an index, and may omit account_id/video_id entirely once it
-    already has a URL) as well as ``frame_number`` (0-based index into the
-    curated set, which does need account_id); a direct URL wins when both are
-    given.
+    Accepts a frame URL directly (``frame_url``/``url``/``image_url``/
+    ``scene_img`` — the chat agent is handed real curated-frame URLs, so it
+    often passes one straight through rather than an index, and may omit
+    account_id/video_id entirely once it already has a URL) as well as
+    ``frame_number``/``frame_index`` (0-based index into the curated set,
+    which does need account_id); a direct URL wins when both are given.
+    The URL/index aliases beyond ``frame_url``/``frame_number`` exist because
+    a cheap model given ~12 overlapping tools (confirmed live) sometimes
+    guesses a plausible-but-wrong name borrowed from a sibling tool's
+    schema (e.g. ``scene_img`` from the ORB-matching tools) instead of this
+    function's own; tolerating the ones actually observed converts a
+    guaranteed-failed call into a working one instead of burning a retry
+    round.
     """
     from .blob import get_sas_url_for_frame  # noqa: PLC0415
     from .vision import VisionClient  # noqa: PLC0415
 
     cfg = _cfg()
-    resolved_url = frame_url or url
+    resolved_url = frame_url or url or image_url or scene_img
+    if frame_index is not None:
+        try:
+            frame_number = int(frame_index)
+        except (TypeError, ValueError):
+            pass
     if not resolved_url:
         if not account_id:
             return "A frame_url/url or an account_id (to look one up) is required."

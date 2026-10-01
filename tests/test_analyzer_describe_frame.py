@@ -83,6 +83,36 @@ def test_describe_frame_accepts_a_direct_url(monkeypatch):
     assert result3 == "a land bridge"
 
 
+def test_describe_frame_tolerates_observed_wrong_kwargs(monkeypatch):
+    """Live bug: a cheap model given ~12 overlapping tools repeatedly guessed
+    plausible-but-wrong kwarg names borrowed from sibling tools instead of
+    describe_frame's own (frame_index, image_url, scene_img), failing every
+    attempt and polluting the logs. These are the exact names observed."""
+    monkeypatch.setattr(analyzer_module, "_cfg", lambda: "dummy-config")
+    monkeypatch.setattr(
+        analyzer_module, "get_sas_url_template",
+        lambda account_id, video_id=None: "https://x/input/5/images/2/frame(number).jpg?sig=abc",
+    )
+    monkeypatch.setattr(
+        blob_module, "get_sas_url_for_frame",
+        lambda template, frame_number: template.replace("frame(number)", f"frame{frame_number}"),
+    )
+    fake_client = MagicMock()
+    fake_client.analyze_image_description.return_value = "a land bridge"
+    monkeypatch.setattr(vision_module, "VisionClient", MagicMock(return_value=fake_client))
+
+    # image_url / scene_img: direct-URL aliases.
+    assert describe_frame(image_url="https://x/frame1.jpg") == "a land bridge"
+    assert describe_frame(scene_img="https://x/frame1.jpg") == "a land bridge"
+
+    # frame_index: an index alias — resolves via account_id like frame_number.
+    result = describe_frame("5", video_id="2", frame_index="3")
+    fake_client.analyze_image_description.assert_called_with(
+        "https://x/input/5/images/2/frame3.jpg?sig=abc"
+    )
+    assert result == "a land bridge"
+
+
 def test_describe_frame_without_url_or_account_id_returns_message():
     result = describe_frame()
     assert "account_id" in result
