@@ -29,6 +29,10 @@ from .config import AzureEnvironmentConfig
 logger = logging.getLogger("apps.azure")
 
 _AGENT_MAX_OUTPUT_TOKENS = 10000
+# Hard wall-clock cap on one agent run (create thread -> poll -> submit tool
+# outputs -> ...). Defense in depth against a run that never settles, so a
+# single chat request can't hang indefinitely.
+_AGENT_MAX_RUN_SECONDS = 90
 
 
 def _json_safe(o: Any) -> Any:
@@ -166,7 +170,19 @@ class FoundryAgents:
         thread = agents_client.threads.create()
         agents_client.messages.create(thread_id=thread.id, role="user", content=content)
         run = agents_client.runs.create(thread_id=thread.id, agent_id=agent.id)
+        deadline = time.monotonic() + _AGENT_MAX_RUN_SECONDS
         while run.status in ("queued", "in_progress", "requires_action"):
+            if time.monotonic() > deadline:
+                # Defense in depth: a run that never settles (a looping tool
+                # call, a stuck model, ...) must not hang the chat request
+                # forever. Cancel it and return whatever we have so far.
+                logger.warning("Agent run %s exceeded %ss; cancelling.",
+                               run.id, _AGENT_MAX_RUN_SECONDS)
+                try:
+                    agents_client.runs.cancel(thread_id=thread.id, run_id=run.id)
+                except Exception:  # noqa: BLE001
+                    pass
+                break
             time.sleep(1)
             run = agents_client.runs.get(thread_id=thread.id, run_id=run.id)
             if run.status == "requires_action" and isinstance(run.required_action, SubmitToolOutputsAction):
@@ -176,20 +192,27 @@ class FoundryAgents:
                     break
                 tool_outputs = []
                 for tool_call in tool_calls:
+                    # Every pending tool_call must get a ToolOutput — including
+                    # when tool_executor is absent, the tool raises, or it
+                    # legitimately returns None — or the run's required_action
+                    # never clears: Foundry keeps reporting the *same* pending
+                    # tool_call on every poll and this loop re-executes it
+                    # forever (confirmed live: a failing ask_perplexity call
+                    # looping every ~1s, never returning to the caller).
                     if tool_executor is None:
-                        continue
-                    try:
-                        output = _coerce_tool_output(tool_executor(tool_call))
-                    except Exception as exc:  # noqa: BLE001
-                        logger.info("Error executing tool_call %s: %s", tool_call.id, exc)
-                        continue
-                    if output is not None:
+                        output = ""
+                    else:
+                        try:
+                            output = _coerce_tool_output(tool_executor(tool_call)) or ""
+                        except Exception as exc:  # noqa: BLE001
+                            logger.info("Error executing tool_call %s: %s", tool_call.id, exc)
+                            output = f"Error: {exc}"
+                    if output:
                         answer = output
-                        tool_outputs.append(ToolOutput(tool_call_id=tool_call.id, output=output))
-                if tool_outputs:
-                    agents_client.runs.submit_tool_outputs(
-                        thread_id=thread.id, run_id=run.id, tool_outputs=tool_outputs
-                    )
+                    tool_outputs.append(ToolOutput(tool_call_id=tool_call.id, output=output))
+                agents_client.runs.submit_tool_outputs(
+                    thread_id=thread.id, run_id=run.id, tool_outputs=tool_outputs
+                )
         messages = agents_client.messages.list(thread_id=thread.id, order=ListSortOrder.ASCENDING)
         for msg in messages:
             if msg.text_messages:
