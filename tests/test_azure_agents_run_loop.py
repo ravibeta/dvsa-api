@@ -37,6 +37,55 @@ def _patch_action_class(monkeypatch):
     monkeypatch.setattr(agents_models, "SubmitToolOutputsAction", _FakeSubmitToolOutputsAction)
 
 
+def test_hung_tool_call_is_abandoned_rather_than_blocking_forever(monkeypatch):
+    """Live bug: a chat request hung with *no further log output at all*,
+    well past every deadline/round-cap — those are only checked *between*
+    loop iterations, so a single tool call blocked inside one iteration (a
+    network call with no timeout of its own, especially under concurrent
+    load) was never interrupted. Each tool call now runs through a bounded
+    future so a stuck call can't block the loop past _TOOL_CALL_TIMEOUT_SECONDS."""
+    import threading
+    import time as time_module
+
+    _patch_action_class(monkeypatch)
+    monkeypatch.setattr("core.azure.agents._TOOL_CALL_TIMEOUT_SECONDS", 0.05)
+    agents = FoundryAgents(SimpleNamespace())
+
+    tool_call = SimpleNamespace(id="call-1")
+    pending_run = SimpleNamespace(
+        id="run-1", status="requires_action",
+        required_action=_FakeSubmitToolOutputsAction(tool_calls=[tool_call]),
+    )
+    done_run = SimpleNamespace(id="run-1", status="completed", required_action=None)
+
+    fake_client = MagicMock()
+    fake_client.threads.create.return_value = SimpleNamespace(id="thread-1")
+    fake_client.runs.create.return_value = pending_run
+    fake_client.runs.get.side_effect = [pending_run, done_run]
+    fake_client.messages.list.return_value = []
+
+    # Note: deliberately NOT monkeypatching time.sleep here — it patches the
+    # process-wide `time` module singleton, which would also silently no-op
+    # the "hang" this test simulates below. The loop only needs one real
+    # ~1s sleep between its two polls, which is fine for a test.
+
+    def hangs_forever(_call):
+        # A blocking primitive unaffected by any time.sleep patching, to
+        # simulate a tool call that never returns.
+        threading.Event().wait(5)  # far longer than the 0.05s timeout above
+        return "too late"
+
+    start = time_module.monotonic()
+    agents._run_agent(fake_client, SimpleNamespace(id="agent-1"), "hello", hangs_forever)
+    elapsed = time_module.monotonic() - start
+
+    # Returned almost immediately — not after the 5s the hung call would
+    # have taken — proving the loop didn't wait for it.
+    assert elapsed < 3
+    submitted = fake_client.runs.submit_tool_outputs.call_args.kwargs["tool_outputs"]
+    assert "took longer than" in submitted[0].output
+
+
 def test_failing_tool_call_still_advances_the_run(monkeypatch):
     """A tool_call whose executor returns None must still get a ToolOutput
     submitted, so the run can move past requires_action instead of looping."""

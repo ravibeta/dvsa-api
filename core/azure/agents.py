@@ -19,6 +19,7 @@ not configured, every public method returns a deterministic echo answer via
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import time
@@ -27,6 +28,24 @@ from typing import Any, Callable, Dict, List, Optional
 from .config import AzureEnvironmentConfig
 
 logger = logging.getLogger("apps.azure")
+
+# Shared pool for running each individual tool call under a hard timeout (see
+# _TOOL_CALL_TIMEOUT_SECONDS below). Module-level and never explicitly shut
+# down: a timed-out call's thread is abandoned, not killed (Python can't
+# force-kill a thread), so reusing one pool avoids blocking on
+# ThreadPoolExecutor.shutdown(wait=True) for a call that will never return.
+_TOOL_CALL_POOL = concurrent.futures.ThreadPoolExecutor(
+    max_workers=8, thread_name_prefix="dvsa-tool-call"
+)
+# Hard per-call timeout for a single tool_executor(tool_call) invocation.
+# Confirmed live: a chat request can hang *forever* with no further log
+# output at all — past every other deadline/round-cap below — because those
+# are only checked *between* loop iterations; a single blocking call inside
+# one iteration (an analyzer/Vision/Perplexity HTTP call with no timeout of
+# its own, especially under concurrent load that can exhaust a connection
+# pool) is never interrupted by them. Running each call through a bounded
+# future closes that gap regardless of which underlying call is stuck.
+_TOOL_CALL_TIMEOUT_SECONDS = 25
 
 _AGENT_MAX_OUTPUT_TOKENS = 10000
 # Hard wall-clock cap on one agent run (create thread -> poll -> submit tool
@@ -245,8 +264,22 @@ class FoundryAgents:
                     if tool_executor is None:
                         output = ""
                     else:
+                        future = _TOOL_CALL_POOL.submit(tool_executor, tool_call)
                         try:
-                            output = _coerce_tool_output(tool_executor(tool_call)) or ""
+                            output = _coerce_tool_output(
+                                future.result(timeout=_TOOL_CALL_TIMEOUT_SECONDS)
+                            ) or ""
+                        except concurrent.futures.TimeoutError:
+                            logger.warning(
+                                "Tool call %s timed out after %ss; abandoning it (it may "
+                                "keep running in the background) rather than blocking "
+                                "this chat request indefinitely.",
+                                tool_call.id, _TOOL_CALL_TIMEOUT_SECONDS,
+                            )
+                            output = (
+                                f"Error: this tool call took longer than "
+                                f"{_TOOL_CALL_TIMEOUT_SECONDS}s and was abandoned."
+                            )
                         except Exception as exc:  # noqa: BLE001
                             logger.info("Error executing tool_call %s: %s", tool_call.id, exc)
                             output = f"Error: {exc}"
