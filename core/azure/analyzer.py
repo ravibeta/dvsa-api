@@ -246,7 +246,45 @@ def get_sas_url_template(account_id, video_id=None, upload=False):
         return None
 
 
-def describe_frame(account_id, video_id=None, frame_number=0):
+def curated_frame_urls(account_id, video_id=None, limit=20):
+    """Fresh SAS URLs for a video's curated extracted-frame set.
+
+    These are the :class:`~apps.videos.models.ImageEntity` rows the console's
+    "Extract Frames" action (``FrameExtractAPIView``) persists — a small,
+    high-fidelity, stride/salient-sampled set (typically single digits), not
+    the full per-video frame count (which can run into the thousands and
+    isn't a useful thing to hand an agent wholesale). Re-mints the SAS URLs
+    rather than trusting the persisted ones, which can be hours-stale by the
+    time a chat question is asked. Falls back to the account's latest video
+    when ``video_id`` is not given, matching :func:`get_sas_url_template`.
+    Returns ``[]`` when no frames have been extracted yet for that video.
+    """
+    from .blob import get_sas_url_for_frame  # noqa: PLC0415
+
+    try:
+        from apps.videos.models import VideoEntity  # noqa: PLC0415
+
+        if not video_id:
+            video_id = str(VideoEntity.objects.filter(account_id=account_id).last().id)
+        entity = VideoEntity.objects.get(pk=video_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("curated_frame_urls: could not resolve video: %s", exc)
+        return []
+    count = entity.images.count()
+    if not count:
+        return []
+    sas_url_template = get_sas_url_template(account_id, video_id)
+    if not sas_url_template:
+        return []
+    urls = []
+    for i in range(min(count, limit)):
+        url = get_sas_url_for_frame(sas_url_template, i)
+        if url:
+            urls.append(url)
+    return urls
+
+
+def describe_frame(account_id=None, video_id=None, frame_number=0, frame_url=None, url=None):
     """Caption/tag one extracted frame via Azure AI Vision (function tool).
 
     Resolves the real frame SAS URL for ``account_id``/``video_id`` and runs
@@ -255,18 +293,29 @@ def describe_frame(account_id, video_id=None, frame_number=0):
     chat agent can answer "what's in the scene" / "how many X are visible"
     questions from a real caption+tags+objects analysis without needing
     Perplexity or Qwen configured. Returns a compact JSON string.
+
+    Accepts a frame URL directly (``frame_url``/``url`` — the chat agent is
+    handed real curated-frame URLs, so it often passes one straight through
+    rather than an index, and may omit account_id/video_id entirely once it
+    already has a URL) as well as ``frame_number`` (0-based index into the
+    curated set, which does need account_id); a direct URL wins when both are
+    given.
     """
     from .blob import get_sas_url_for_frame  # noqa: PLC0415
     from .vision import VisionClient  # noqa: PLC0415
 
     cfg = _cfg()
-    sas_url_template = get_sas_url_template(account_id, video_id)
-    if not sas_url_template:
-        return "No extracted frames are available for this account/video yet."
-    frame_url = get_sas_url_for_frame(sas_url_template, frame_number)
-    if not frame_url:
+    resolved_url = frame_url or url
+    if not resolved_url:
+        if not account_id:
+            return "A frame_url/url or an account_id (to look one up) is required."
+        sas_url_template = get_sas_url_template(account_id, video_id)
+        if not sas_url_template:
+            return "No extracted frames are available for this account/video yet."
+        resolved_url = get_sas_url_for_frame(sas_url_template, frame_number)
+    if not resolved_url:
         return "Could not resolve a frame URL for this account/video."
-    return VisionClient(cfg).analyze_image_description(frame_url)
+    return VisionClient(cfg).analyze_image_description(resolved_url)
 
 
 def get_object_uri(object_description, account_id, video_id=None, frame_number=None):
@@ -409,7 +458,7 @@ def analyzer_functions() -> Set[Callable[..., Any]]:
 
 
 def image_user_functions() -> Set[Callable[..., Any]]:
-    fns: Set[Callable[..., Any]] = {agentic_retrieval, ask_perplexity}
+    fns: Set[Callable[..., Any]] = {agentic_retrieval, ask_perplexity, describe_frame}
     if _cfg().qwen_enabled:
         fns.add(ask_qwen_vlm)
     return fns

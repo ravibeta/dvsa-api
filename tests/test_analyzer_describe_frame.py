@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 import core.azure.analyzer as analyzer_module
 import core.azure.blob as blob_module
 import core.azure.vision as vision_module
-from core.azure.analyzer import analyzer_functions, describe_frame
+from core.azure.analyzer import analyzer_functions, describe_frame, image_user_functions
 
 
 def test_describe_frame_resolves_url_and_calls_vision(monkeypatch):
@@ -54,5 +54,40 @@ def test_describe_frame_without_frames_returns_message(monkeypatch):
     assert "No extracted frames" in result
 
 
+def test_describe_frame_accepts_a_direct_url(monkeypatch):
+    """The chat agent is handed real frame URLs in context and often passes
+    one straight through rather than an index — describe_frame(frame_number=0)
+    alone used to make it invent an unsupported `frame_url`/`url` kwarg."""
+    monkeypatch.setattr(analyzer_module, "_cfg", lambda: "dummy-config")
+    get_template = MagicMock()
+    monkeypatch.setattr(analyzer_module, "get_sas_url_template", get_template)
+    fake_client = MagicMock()
+    fake_client.analyze_image_description.return_value = "a land bridge"
+    monkeypatch.setattr(vision_module, "VisionClient", MagicMock(return_value=fake_client))
+
+    result = describe_frame("5", video_id="2", frame_url="https://x/frame1.jpg?sig=abc")
+
+    get_template.assert_not_called()  # direct URL short-circuits index lookup
+    fake_client.analyze_image_description.assert_called_once_with(
+        "https://x/frame1.jpg?sig=abc"
+    )
+    assert result == "a land bridge"
+
+    # The `url` alias works the same way.
+    result2 = describe_frame("5", video_id="2", url="https://x/frame2.jpg?sig=abc")
+    assert result2 == "a land bridge"
+
+    # account_id can be omitted entirely once a direct URL is given — the
+    # model often drops it once it already has the URL in hand.
+    result3 = describe_frame(frame_url="https://x/frame3.jpg?sig=abc")
+    assert result3 == "a land bridge"
+
+
+def test_describe_frame_without_url_or_account_id_returns_message():
+    result = describe_frame()
+    assert "account_id" in result
+
+
 def test_describe_frame_is_registered_as_a_tool():
     assert describe_frame in analyzer_functions()
+    assert describe_frame in image_user_functions()
