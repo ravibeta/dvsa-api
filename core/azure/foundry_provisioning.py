@@ -326,8 +326,13 @@ def verify_deployments(client: FoundryProjectClient, names: Iterable[str]) -> Li
 
 
 def env_from_project_endpoint(project_endpoint: str, *, subscription_id: str = "",
-                              resource_group: str = "") -> Dict[str, str]:
-    """Placeholder values (``${ACCOUNT}``/``${PROJECT}``/...) for yaml substitution."""
+                              resource_group: str = "",
+                              search_service: str = "") -> Dict[str, str]:
+    """Placeholder values (``${ACCOUNT}``/``${PROJECT}``/...) for yaml substitution.
+
+    ``${SEARCH_SERVICE}`` is the Azure AI Search service name, which is also the
+    name of the project's search connection (see ``solution-accelerator/foundry.tf``).
+    """
     m = re.match(r"https://([^./]+)\.services\.ai\.azure\.com/api/projects/([^/?]+)",
                  project_endpoint)
     account, project = (m.group(1), m.group(2)) if m else ("", "")
@@ -336,4 +341,5 @@ def env_from_project_endpoint(project_endpoint: str, *, subscription_id: str = "
         "RESOURCE_GROUP": resource_group or os.environ.get("AZURE_RESOURCE_GROUP", ""),
         "ACCOUNT": account,
         "PROJECT": project,
+        "SEARCH_SERVICE": search_service or os.environ.get("AZURE_SEARCH_SERVICE_NAME", ""),
     }

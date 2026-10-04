@@ -17,7 +17,7 @@ definition:
     - type: azure_ai_search
       azure_ai_search:
         indexes:
-          - project_connection_id: /subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${PROJECT}/connections/srch-vision-01
+          - project_connection_id: /subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${PROJECT}/connections/${SEARCH_SERVICE}
             index_name: dvsa-index
             query_type: simple
             top_k: 5

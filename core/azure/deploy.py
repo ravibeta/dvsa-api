@@ -43,8 +43,16 @@ def _setup_django() -> None:
     django.setup()
 
 
-def ensure_base_index(config: Any, name: Optional[str] = None, *, dry_run: bool = False) -> Dict[str, Any]:
-    """Create/update the shared base index with the full retrieval schema."""
+def ensure_base_index(config: Any, name: Optional[str] = None, *, dry_run: bool = False,
+                      recreate: bool = False) -> Dict[str, Any]:
+    """Create/update the shared base index with the full retrieval schema.
+
+    Azure AI Search can't change an existing field's type in place, and the base
+    index may predate this schema (it was created by the old ``index007``
+    Terraform). If the in-place update is rejected, an **empty** index (or any
+    index with ``recreate=True``) is dropped and rebuilt; an index that holds
+    documents is left alone and reported, so a deploy never destroys data.
+    """
     from .provisioning import AzureSdkProvisioner, DryRunProvisioner  # noqa: PLC0415
 
     name = name or config.search_index_name
@@ -52,10 +60,37 @@ def ensure_base_index(config: Any, name: Optional[str] = None, *, dry_run: bool 
         op = DryRunProvisioner(config).ensure_search_index(name)
         return {"index": name, "action": "would-ensure" if dry_run else "skipped-no-search-config", **{
             k: op[k] for k in ("vector_profiles", "semantic") if k in op}}
-    op = AzureSdkProvisioner(config).ensure_search_index(name)
+    prov = AzureSdkProvisioner(config)
+    op = prov.ensure_search_index(name)
+    if not op.get("error"):
+        return {"index": name, "action": "ensured"}
+    try:
+        docs = prov._index_client().get_search_client(name).get_document_count()
+    except Exception as exc:  # noqa: BLE001 - index missing/unreadable: surface the original error
+        return {"index": name, "action": "error", "error": op["error"], "detail": str(exc)}
+    if docs and not recreate:
+        return {"index": name, "action": "error", "documents": docs,
+                "error": f"index has {docs} documents and its schema can't be updated in place; "
+                         "re-run with --recreate-index to drop and rebuild it",
+                "detail": op["error"]}
+    try:
+        prov._index_client().delete_index(name)
+    except Exception as exc:  # noqa: BLE001
+        if "referencing" in str(exc):
+            # A Search knowledge agent / knowledge base targets this index (the
+            # portal's MCP knowledge-base connections point at those). Dropping
+            # it would break them, so leave the index and say how to proceed.
+            return {"index": name, "action": "blocked",
+                    "error": "index can't be rebuilt: an AI Search knowledge agent still references it",
+                    "remediation": "delete or retarget the referencing knowledge agent(s) (named in "
+                                   "detail), re-run, then recreate them (core.azure agents recreate "
+                                   "search-agent-in-a-team on first use)",
+                    "detail": str(exc).splitlines()[0]}
+        return {"index": name, "action": "error", "error": str(exc)}
+    op = prov.ensure_search_index(name)
     if op.get("error"):
         return {"index": name, "action": "error", "error": op["error"]}
-    return {"index": name, "action": "ensured"}
+    return {"index": name, "action": "recreated", "dropped_documents": docs}
 
 
 def deployments_used(specs: List[Any]) -> List[str]:
@@ -71,7 +106,8 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
     report: Dict[str, Any] = {"index": None, "agents": [], "classic_agents": [], "deployments": [], "ok": True}
 
     if not args.skip_index:
-        report["index"] = ensure_base_index(config, args.index, dry_run=args.dry_run)
+        report["index"] = ensure_base_index(config, args.index, dry_run=args.dry_run,
+                                            recreate=args.recreate_index)
         if report["index"].get("action") == "error":
             report["ok"] = False
 
@@ -83,7 +119,8 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
             return report
         env = fp.env_from_project_endpoint(
             endpoint, subscription_id=config.subscription_id or "",
-            resource_group=config.resource_group)
+            resource_group=config.resource_group,
+            search_service=config.search_service_name or "")
         specs = fp.load_agent_specs(args.agents_dir, env)
         client = fp.FoundryProjectClient(endpoint, retries=args.retries)
         report["agents"] = fp.sync_agents(client, specs, dry_run=args.dry_run,
@@ -113,6 +150,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--index", help="base index name (default AZURE_SEARCH_INDEX_NAME)")
     p.add_argument("--only", help="comma-separated agent names to sync")
     p.add_argument("--skip-index", action="store_true")
+    p.add_argument("--recreate-index", action="store_true",
+                   help="drop and rebuild the base index even if it holds documents")
     p.add_argument("--skip-agents", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--retries", type=int, default=3, help="retries on 401/403 (RBAC propagation)")

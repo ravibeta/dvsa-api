@@ -8,7 +8,8 @@ import pytest
 from core.azure import foundry_provisioning as fp
 
 AGENTS_DIR = Path(__file__).resolve().parents[1] / "solution-accelerator" / "agents"
-ENV = {"SUBSCRIPTION_ID": "sub-1", "RESOURCE_GROUP": "rg-1", "ACCOUNT": "acct", "PROJECT": "proj"}
+ENV = {"SUBSCRIPTION_ID": "sub-1", "RESOURCE_GROUP": "rg-1", "ACCOUNT": "acct", "PROJECT": "proj",
+       "SEARCH_SERVICE": "srch"}
 
 
 class FakeClient:
@@ -57,15 +58,16 @@ def test_connection_ids_are_templated():
     master = next(s for s in fp.load_agent_specs(AGENTS_DIR, ENV) if s.name == "master-agent-in-a-team")
     conn = master.definition["tools"][1]["azure_ai_search"]["indexes"][0]["project_connection_id"]
     assert conn.startswith("/subscriptions/sub-1/resourceGroups/rg-1/")
-    assert conn.endswith("/accounts/acct/projects/proj/connections/srch-vision-01")
+    assert conn.endswith("/accounts/acct/projects/proj/connections/srch")
 
 
 def test_env_from_project_endpoint():
     env = fp.env_from_project_endpoint(
         "https://found-vision-1.services.ai.azure.com/api/projects/droneimage",
-        subscription_id="s", resource_group="r")
+        subscription_id="s", resource_group="r", search_service="srch")
     assert env == {"SUBSCRIPTION_ID": "s", "RESOURCE_GROUP": "r",
-                   "ACCOUNT": "found-vision-1", "PROJECT": "droneimage"}
+                   "ACCOUNT": "found-vision-1", "PROJECT": "droneimage",
+                   "SEARCH_SERVICE": "srch"}
 
 
 # --- generated function tools ---------------------------------------------
