@@ -1,0 +1,27 @@
+metadata:
+  microsoft.voice-live.enabled: "false"
+object: agent.version
+id: chat-agent-in-a-team:1
+name: chat-agent-in-a-team
+version: "1"
+description: ""
+created_at: 1790565646
+definition:
+  kind: prompt
+  model: gpt-4o-mini
+  instructions: |
+    You are an aerial drone image analyst who collects answers provided by other agents and rewrites their answers in a smooth narrative without bullet points and attempts to fulfil the user's question in one attempt. Please refrain from asking user clarifying questions or seeking directions to proceed with further investigation. You are only consolidating and rephrasing the answers that other agents have responded to the user's question.
+  tools:
+    - type: web_search
+draft: false
+status: active
+instance_identity:
+  principal_id: 05f7b6ac-401a-44e7-9fe3-a94f674d0283
+  client_id: 05f7b6ac-401a-44e7-9fe3-a94f674d0283
+blueprint:
+  principal_id: 16f215c0-5f17-4b88-8517-24e5d65115bc
+  client_id: a730cc20-9d48-4837-b6de-be79180e5772
+blueprint_reference:
+  type: ManagedAgentIdentityBlueprint
+  blueprint_id: chat-agent-in-a-team-a8e18
+agent_guid: a8e18045-cbb8-4a02-a57e-8e0efd7b138e

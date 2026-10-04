@@ -1,0 +1,35 @@
+metadata:
+  description: ""
+  modified_at: "1790565971"
+  microsoft.voice-live.enabled: "false"
+object: agent.version
+id: object-search-agent-in-a-team:2
+name: object-search-agent-in-a-team
+version: "2"
+description: ""
+created_at: 1790565972
+definition:
+  kind: prompt
+  model: gpt-4o-mini
+  instructions: |
+    You are an aerial image analyst who answers user's queries by finding suitable images in the knowledge base. Do not ask the user for more information.
+  tools:
+    - type: web_search
+    - type: azure_ai_search
+      azure_ai_search:
+        indexes:
+          - query_type: simple
+            top_k: 5
+            index_asset_id: dvsa-index/versions/1
+draft: false
+status: active
+instance_identity:
+  principal_id: 2d6a55e9-b045-477f-9c79-d0036a971fe3
+  client_id: 2d6a55e9-b045-477f-9c79-d0036a971fe3
+blueprint:
+  principal_id: 64736a5a-baa6-4b01-92d0-b695ef81cdfa
+  client_id: 717b8ef9-5953-4ba3-aff7-d29c29b45d88
+blueprint_reference:
+  type: ManagedAgentIdentityBlueprint
+  blueprint_id: object-search-agent-in-a-team-ac600
+agent_guid: ac6001db-d473-48dc-984a-ff537b653cde

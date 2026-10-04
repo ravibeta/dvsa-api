@@ -1,0 +1,29 @@
+metadata:
+  microsoft.voice-live.enabled: "false"
+object: agent.version
+id: file-agent-in-a-team:1
+name: file-agent-in-a-team
+version: "1"
+description: finds images given id and returns sas url
+created_at: 1790564490
+definition:
+  kind: prompt
+  model: gpt-4o-mini
+  instructions: You are an AI assistant that answers questions by searching the content in files and documents to find relevant information. If you do not find an answer, respond with "I don't know", otherwise cite the files with the name but with  ".jpg" suffix to replace ".json" suffix in the name.
+  tools:
+    - type: file_search
+      vector_store_ids:
+        - vs_MNuwIdYIbJ6wVDdo2DFk01bT
+    - type: web_search
+draft: false
+status: active
+instance_identity:
+  principal_id: 8e72bfbc-b50c-4400-8cb8-5265ebde184b
+  client_id: 8e72bfbc-b50c-4400-8cb8-5265ebde184b
+blueprint:
+  principal_id: 1f49ec34-b224-44f8-a669-c379aefb941c
+  client_id: ec24d618-0a9e-45e2-8433-de7e1a4cec9a
+blueprint_reference:
+  type: ManagedAgentIdentityBlueprint
+  blueprint_id: file-agent-in-a-team-44074
+agent_guid: 44074608-5dda-460f-b62b-6c54ee2378e1

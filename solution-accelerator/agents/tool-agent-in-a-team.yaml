@@ -1,0 +1,256 @@
+metadata:
+  description: ""
+  modified_at: "1790843199"
+  microsoft.voice-live.enabled: "false"
+object: agent.version
+id: tool-agent-in-a-team:3
+name: tool-agent-in-a-team
+version: "3"
+description: ""
+created_at: 1790843200
+definition:
+  kind: prompt
+  model: gpt-4o-mini
+  instructions: You are a drone aerial image analytics assistant that answers the question by finding a suitable function, passing the question to the function, evaluating it and relaying the response from the function. If you can't find a suitable function, default to the ask_perplexity function included in your tools.
+  tools:
+    - type: function
+      name: download_image
+      description: No description
+      parameters:
+        type: object
+        properties:
+          url:
+            type: string
+            description: No description
+        required:
+          - url
+      strict: false
+    - type: function
+      name: plot_clusters
+      description: No description
+      parameters:
+        type: object
+        properties:
+          points:
+            type: string
+            description: No description
+          labels:
+            type: string
+            description: No description
+        required:
+          - points
+          - labels
+      strict: false
+    - type: function
+      name: cluster_keypoints
+      description: No description
+      parameters:
+        type: object
+        properties:
+          points:
+            type: string
+            description: No description
+          eps:
+            type: string
+            description: No description
+          min_samples:
+            type: string
+            description: No description
+        required:
+          - points
+      strict: false
+    - type: function
+      name: keypoints_and_descriptors
+      description: No description
+      parameters:
+        type: object
+        properties:
+          scene_img:
+            type: string
+            description: No description
+          object_img:
+            type: string
+            description: No description
+        required:
+          - scene_img
+          - object_img
+      strict: false
+    - type: function
+      name: count_object_occurrences
+      description: No description
+      parameters:
+        type: object
+        properties:
+          scene:
+            type: string
+            description: No description
+          template:
+            type: string
+            description: No description
+          threshold:
+            type: string
+            description: No description
+        required:
+          - scene
+          - template
+      strict: false
+    - type: function
+      name: ask_perplexity
+      description: No description
+      parameters:
+        type: object
+        properties:
+          query_text:
+            type: string
+            description: No description
+          account_id:
+            type: string
+            description: No description
+          video_id:
+            type: string
+            description: No description
+          frames_list:
+            type: string
+            description: No description
+        required:
+          - query_text
+      strict: false
+    - type: function
+      name: count_multiple_matches
+      description: No description
+      parameters:
+        type: object
+        properties:
+          scene_uri:
+            type: string
+            description: No description
+          object_uri:
+            type: string
+            description: No description
+        required:
+          - scene_uri
+          - object_uri
+      strict: false
+    - type: function
+      name: cluster_keypoints_hdbscan
+      description: No description
+      parameters:
+        type: object
+        properties:
+          points:
+            type: string
+            description: No description
+          min_cluster_size:
+            type: string
+            description: No description
+        required:
+          - points
+      strict: false
+    - type: function
+      name: get_matched_keypoints
+      description: No description
+      parameters:
+        type: object
+        properties:
+          scene_img:
+            type: string
+            description: No description
+          object_img:
+            type: string
+            description: No description
+        required:
+          - scene_img
+          - object_img
+      strict: false
+    - type: function
+      name: count_matches
+      description: No description
+      parameters:
+        type: object
+        properties: {}
+        required: []
+      strict: false
+    - type: function
+      name: agentic_retrieval
+      description: No description
+      parameters:
+        type: object
+        properties:
+          pattern_uri:
+            type:
+              - string
+              - "null"
+            description: No description
+          content_uri:
+            type:
+              - string
+              - "null"
+            description: No description
+        required: []
+      strict: false
+    - type: function
+      name: cluster_by_similarity
+      description: No description
+      parameters:
+        type: object
+        properties:
+          descriptors:
+            type: string
+            description: No description
+          min_cluster_size:
+            type: string
+            description: No description
+        required:
+          - descriptors
+      strict: false
+    - type: function
+      name: get_matched_descriptors
+      description: No description
+      parameters:
+        type: object
+        properties:
+          scene_img:
+            type: string
+            description: No description
+          object_img:
+            type: string
+            description: No description
+        required:
+          - scene_img
+          - object_img
+      strict: false
+    - type: function
+      name: load_image_from_sas
+      description: No description
+      parameters:
+        type: object
+        properties:
+          url:
+            type: string
+            description: No description
+        required:
+          - url
+      strict: false
+    - type: web_search
+    - type: mcp
+      server_label: kb-search-agent-in-a-t-p8dc3
+      server_url: https://srch-vision-01.search.windows.net/knowledgebases/search-agent-in-a-team/mcp?api-version=2026-08-01-preview
+      require_approval: never
+      project_connection_id: kb-search-agent-in-a-t-p8dc3
+    - type: mcp
+      server_label: kb-knowledgebase-17908-p8dc3
+      server_url: https://srch-vision-01.search.windows.net/knowledgebases/knowledgebase-1790842694331/mcp?api-version=2026-08-01-preview
+      require_approval: never
+      project_connection_id: kb-knowledgebase-17908-p8dc3
+draft: false
+status: active
+instance_identity:
+  principal_id: 6ee73b06-47c9-4d0e-ba18-b383334137ce
+  client_id: 6ee73b06-47c9-4d0e-ba18-b383334137ce
+blueprint:
+  principal_id: 2961c74f-55cc-471b-a39a-a679f17ba6b2
+  client_id: 6a306f20-38f7-4e26-901e-5301336a0899
+blueprint_reference:
+  type: ManagedAgentIdentityBlueprint
+  blueprint_id: tool-agent-in-a-team-0dbd3
+agent_guid: 0dbd3024-025f-42b8-beec-521793fb279a

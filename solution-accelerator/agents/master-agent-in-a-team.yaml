@@ -1,0 +1,35 @@
+metadata:
+  description: ""
+  modified_at: "1790566426"
+  microsoft.voice-live.enabled: "false"
+object: agent.version
+id: master-agent-in-a-team:2
+name: master-agent-in-a-team
+version: "2"
+description: ""
+created_at: 1790566427
+definition:
+  kind: prompt
+  model: gpt-4o-mini
+  instructions: "You are a drone aerial image analytics assistant that answers the caller's question by searching an azure search index or delegating to connected agent, evaluating the responses and synthesizing a comprehensive response back to the caller. "
+  tools:
+    - type: web_search
+    - type: azure_ai_search
+      azure_ai_search:
+        indexes:
+          - project_connection_id: /subscriptions/656e67c6-f810-4ea6-8b89-636dd0b6774c/resourceGroups/rg-ctl-2/providers/Microsoft.CognitiveServices/accounts/found-vision-1/projects/droneimage/connections/srch-vision-01
+            index_name: dvsa-index
+            query_type: simple
+            top_k: 5
+draft: false
+status: active
+instance_identity:
+  principal_id: 7dfe1ef3-c7ca-47ce-a5f6-752798251807
+  client_id: 7dfe1ef3-c7ca-47ce-a5f6-752798251807
+blueprint:
+  principal_id: e1f61994-4958-4d07-a29e-d6db55013d67
+  client_id: 5decc665-d5dd-4fb4-8707-d924efd6ade7
+blueprint_reference:
+  type: ManagedAgentIdentityBlueprint
+  blueprint_id: master-agent-in-a-team-afef1
+agent_guid: afef1ffa-d821-433e-8980-518148048790

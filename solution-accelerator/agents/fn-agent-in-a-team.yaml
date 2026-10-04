@@ -1,0 +1,44 @@
+metadata:
+  microsoft.voice-live.enabled: "false"
+object: agent.version
+id: fn-agent-in-a-team:1
+name: fn-agent-in-a-team
+version: "1"
+description: ""
+created_at: 1790565632
+definition:
+  kind: prompt
+  model: gpt-4o-mini
+  instructions: You are a drone aerial image analytics assistant that answers the question by finding a suitable function, passing the question to the function, evaluating it and relaying the response from the function. If you can't find a suitable function, default to the ask_perplexity function included in your tools. Please don't ask the user for more information.
+  tools:
+    - type: function
+      name: ask_perplexity
+      description: No description
+      parameters:
+        type: object
+        properties:
+          query_text:
+            type: string
+            description: No description
+          account_id:
+            type: string
+            description: No description
+          video_id:
+            type: string
+            description: No description
+        required:
+          - query_text
+      strict: false
+    - type: web_search
+draft: false
+status: active
+instance_identity:
+  principal_id: 16203883-31fc-472e-92da-9297b5b780e5
+  client_id: 16203883-31fc-472e-92da-9297b5b780e5
+blueprint:
+  principal_id: f02ae586-f1b9-4c1e-af70-766e4719d8a0
+  client_id: 12ab6a77-9133-4728-abed-11c285101746
+blueprint_reference:
+  type: ManagedAgentIdentityBlueprint
+  blueprint_id: fn-agent-in-a-team-cba3b
+agent_guid: cba3ba28-b4ae-4a8b-bb6c-80e9dfd3bc58
