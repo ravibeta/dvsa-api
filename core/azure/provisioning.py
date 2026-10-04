@@ -138,10 +138,16 @@ class DryRunProvisioner(Provisioner):
                             agents=list(self.config.agent_names))
 
     def ensure_search_index(self, name: str) -> Dict[str, Any]:
-        desc = index_schema.describe_index(name, self.config.vector_dimensions)
+        c = self.config
+        desc = index_schema.describe_index(
+            name, c.vector_dimensions, openai_endpoint=c.openai_endpoint,
+            embedding_deployment=c.embedding_deployment,
+            embedding_model=c.embedding_model)
         return self._record("ensure", "search_index", name=name,
-                            dimensions=self.config.vector_dimensions,
-                            fields=[f["name"] for f in desc["fields"]])
+                            dimensions=c.vector_dimensions,
+                            fields=[f["name"] for f in desc["fields"]],
+                            vector_profiles=[p["name"] for p in desc["vector_search"]["profiles"]],
+                            semantic=desc["semantic"]["default_configuration"])
 
     def teardown_search_index(self, name: str) -> Dict[str, Any]:
         return self._record("delete", "search_index", name=name)
@@ -351,14 +357,20 @@ class AzureSdkProvisioner(Provisioner):
         index almost always already exists unchanged. Confirmed live: once a
         Knowledge Agent (run_connected_agent) targets this index directly,
         Azure AI Search auto-manages a backing knowledge source tied to the
-        index's semantic configuration, and our schema
-        (index_schema.build_search_index) doesn't declare one — so Azure
-        rejects the update as "removing" it, and that 500'd the *entire*
+        index's semantic configuration; a schema without one (the schema
+        before it declared ``dvsa-semantic``) made Azure reject the update as
+        "removing" it, and that 500'd the *entire*
         chat request even though the index itself was perfectly usable. A
         redundant "ensure" step that already exists must never take down an
         otherwise-working request.
         """
-        index = index_schema.build_search_index(name, self.config.vector_dimensions)
+        c = self.config
+        index = index_schema.build_search_index(
+            name, c.vector_dimensions,
+            openai_endpoint=c.openai_endpoint, openai_api_key=c.openai_api_key,
+            embedding_deployment=c.embedding_deployment,
+            embedding_model=c.embedding_model,
+        )
         try:
             self._index_client().create_or_update_index(index)
         except Exception as exc:  # noqa: BLE001

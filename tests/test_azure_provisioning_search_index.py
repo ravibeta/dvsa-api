@@ -24,6 +24,9 @@ def _provisioner():
         subscription_id="sub-1", resource_group="rg-1",
         search_endpoint="https://search.example.net", search_admin_key="key",
         vector_dimensions=1536, account_key=None,
+        openai_endpoint=None, openai_api_key=None,
+        embedding_deployment="text-embedding-ada-002",
+        embedding_model="text-embedding-ada-002",
     )
     config.control_plane_ready = lambda: True
     return AzureSdkProvisioner(config)
