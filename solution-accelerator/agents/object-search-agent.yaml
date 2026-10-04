@@ -3,8 +3,8 @@ metadata:
   modified_at: "1790565971"
   microsoft.voice-live.enabled: "false"
 object: agent.version
-id: object-search-agent-in-a-team:2
-name: object-search-agent-in-a-team
+id: object-search-agent:2
+name: object-search-agent
 version: "2"
 description: ""
 created_at: 1790565972
