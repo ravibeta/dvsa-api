@@ -13,7 +13,8 @@ It registers, in a single pass:
    built from :mod:`core.azure.index_schema` — the same builder the runtime uses
    for each per-account ``dvsa-index-s-<account>``;
 2. every agent in ``solution-accelerator/agents/*.yaml`` (function tools
-   generated from :mod:`core.azure.analyzer`);
+   generated from :mod:`core.azure.analyzer`), in both the versioned store and
+   the classic store the runtime executes;
 3. a read-only check that the model deployments those agents use exist.
 
 Every step is attempted even if an earlier one fails; the process exits non-zero
@@ -67,7 +68,7 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
     from . import foundry_provisioning as fp  # noqa: PLC0415
 
     config = AzureEnvironmentConfig.from_settings()
-    report: Dict[str, Any] = {"index": None, "agents": [], "deployments": [], "ok": True}
+    report: Dict[str, Any] = {"index": None, "agents": [], "classic_agents": [], "deployments": [], "ok": True}
 
     if not args.skip_index:
         report["index"] = ensure_base_index(config, args.index, dry_run=args.dry_run)
@@ -88,6 +89,19 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
         report["agents"] = fp.sync_agents(client, specs, dry_run=args.dry_run,
                                           only=args.only.split(",") if args.only else None)
         report["deployments"] = fp.verify_deployments(client, deployments_used(specs))
+        # The runtime executes the classic (asst_*) agents; keep those in sync too.
+        try:
+            from azure.ai.agents import AgentsClient  # noqa: PLC0415
+            from azure.identity import DefaultAzureCredential  # noqa: PLC0415
+
+            with AgentsClient(endpoint=endpoint, credential=DefaultAzureCredential()) as ac:
+                report["classic_agents"] = fp.sync_classic_agents(
+                    ac, specs, dry_run=args.dry_run,
+                    only=args.only.split(",") if args.only else None)
+        except Exception as exc:  # noqa: BLE001
+            report["classic_agents"] = [{"action": "error", "error": str(exc)}]
+        if any(a.get("action") == "error" for a in report.get("classic_agents", [])):
+            report["ok"] = False
         if any(a.get("action") == "error" for a in report["agents"]):
             report["ok"] = False
     return report

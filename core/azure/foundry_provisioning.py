@@ -104,25 +104,27 @@ def load_agent_specs(agents_dir: str | Path, env: Optional[Dict[str, str]] = Non
     return specs
 
 
-def function_tools_from(functions: Iterable[Callable[..., Any]]) -> List[Dict[str, Any]]:
-    """Responses-API ``function`` tool dicts from Python callables.
+def function_tool_definitions(functions: Iterable[Callable[..., Any]]) -> List[Any]:
+    """``FunctionToolDefinition`` objects for Python callables.
 
     Reuses ``azure.ai.agents.models.FunctionTool`` (what the runtime registers
     with) so the schema is derived exactly the way execution derives it.
     """
     from azure.ai.agents.models import FunctionTool  # noqa: PLC0415
 
-    tools: List[Dict[str, Any]] = []
-    for d in FunctionTool(functions=set(functions)).definitions:
-        fn = d.function
-        tools.append({
-            "type": "function",
-            "name": fn.name,
-            "description": fn.description or "No description",
-            "parameters": json.loads(json.dumps(fn.parameters)),
-            "strict": False,
-        })
-    return sorted(tools, key=lambda t: t["name"])
+    return sorted(FunctionTool(functions=set(functions)).definitions,
+                  key=lambda d: d.function.name)
+
+
+def function_tools_from(functions: Iterable[Callable[..., Any]]) -> List[Dict[str, Any]]:
+    """Responses-API ``function`` tool dicts from Python callables."""
+    return [{
+        "type": "function",
+        "name": d.function.name,
+        "description": d.function.description or "No description",
+        "parameters": json.loads(json.dumps(d.function.parameters)),
+        "strict": False,
+    } for d in function_tool_definitions(functions)]
 
 
 def apply_function_tools(spec: AgentSpec) -> AgentSpec:
@@ -248,6 +250,65 @@ def sync_agents(client: FoundryProjectClient, specs: Iterable[AgentSpec], *,
         except Exception as exc:  # noqa: BLE001 - report every agent, fail at the end
             logger.error("agent %s sync failed: %s", spec.name, exc)
             results.append({"agent": spec.name, "action": "error", "error": str(exc)})
+    return results
+
+
+def _function_source(name: str) -> Optional[List[Callable[..., Any]]]:
+    source = FUNCTION_TOOL_SOURCES.get(name)
+    if not source:
+        return None
+    from core.azure import analyzer  # noqa: PLC0415
+
+    return list(getattr(analyzer, source)())
+
+
+def sync_classic_agents(agents_client: Any, specs: Iterable[AgentSpec], *,
+                        dry_run: bool = False,
+                        only: Optional[Iterable[str]] = None) -> List[Dict[str, Any]]:
+    """Keep the *classic* (``asst_*``) agents the runtime executes in sync.
+
+    ``core.azure.agents.FoundryAgents`` runs agents through the classic
+    threads/runs API, which is a separate store from the versioned agents
+    :func:`sync_agents` registers (the portal-visible ones). Only the agents
+    whose function tools come from code are synced here: their instructions and
+    function-tool schemas are replaced; every other tool already on the agent
+    (search, connected agents, ...) is preserved as-is.
+    """
+    wanted = set(only) if only else None
+    existing_by_name: Dict[str, List[Any]] = {}
+    for a in agents_client.list_agents():
+        existing_by_name.setdefault(a.name, []).append(a)
+
+    results: List[Dict[str, Any]] = []
+    for spec in specs:
+        functions = _function_source(spec.name)
+        if functions is None or (wanted is not None and spec.name not in wanted):
+            continue
+        agents = existing_by_name.get(spec.name) or []
+        if not agents:
+            results.append({"agent": spec.name, "store": "classic", "action": "absent"})
+            continue
+        defs = function_tool_definitions(functions)
+        want_names = [d.function.name for d in defs]
+        instructions = spec.definition.get("instructions", "")
+        for a in agents:
+            have = sorted(t.function.name for t in (a.tools or []) if getattr(t, "type", "") == "function")
+            if have == sorted(want_names) and (a.instructions or "") == instructions:
+                results.append({"agent": spec.name, "id": a.id, "store": "classic", "action": "unchanged"})
+                continue
+            if dry_run:
+                results.append({"agent": spec.name, "id": a.id, "store": "classic", "action": "would-update",
+                                "functions": len(defs)})
+                continue
+            try:
+                kept = [t for t in (a.tools or []) if getattr(t, "type", "") != "function"]
+                agents_client.update_agent(a.id, instructions=instructions, tools=defs + kept)
+                results.append({"agent": spec.name, "id": a.id, "store": "classic", "action": "update",
+                                "functions": len(defs)})
+            except Exception as exc:  # noqa: BLE001
+                logger.error("classic agent %s sync failed: %s", spec.name, exc)
+                results.append({"agent": spec.name, "id": a.id, "store": "classic", "action": "error",
+                                "error": str(exc)})
     return results
 
 

@@ -172,3 +172,65 @@ def test_client_posts_definition_as_new_version():
     method, url, kw = sess.calls[0]
     assert method == "POST" and url.endswith("/agents/a/versions?api-version=v1")
     assert out == {"version": "4"} and '"definition"' in kw["data"]
+
+
+# --- classic (asst_*) store: what the runtime actually executes -------------
+class _Tool(SimpleNamespace):
+    pass
+
+
+def _classic_agent(name, fn_names=(), others=("azure_ai_search",), instructions="old"):
+    tools = [_Tool(type="function", function=SimpleNamespace(name=n)) for n in fn_names]
+    tools += [_Tool(type=t) for t in others]
+    return SimpleNamespace(id=f"asst_{name}", name=name, tools=tools, instructions=instructions)
+
+
+class FakeClassic:
+    def __init__(self, agents):
+        self._agents, self.updates = agents, []
+
+    def list_agents(self):
+        return list(self._agents)
+
+    def update_agent(self, agent_id, **kw):
+        self.updates.append((agent_id, kw))
+
+
+def _tool_spec():
+    from core.azure.analyzer import analyzer_functions  # noqa: F401  (ensure importable)
+
+    return fp.AgentSpec(name="tool-agent-in-a-team",
+                        definition={"kind": "prompt", "model": "m", "instructions": "NEW", "tools": []})
+
+
+def test_classic_sync_replaces_stale_function_tools_and_keeps_other_tools():
+    stale = _classic_agent("tool-agent-in-a-team", fn_names=("plot_clusters", "cluster_keypoints"))
+    c = FakeClassic([stale])
+    res = fp.sync_classic_agents(c, [_tool_spec()])
+    assert res[0]["action"] == "update"
+    agent_id, kw = c.updates[0]
+    names = {t.function.name for t in kw["tools"] if getattr(t, "type", "") == "function"}
+    assert "describe_frame" in names and "plot_clusters" not in names
+    assert any(getattr(t, "type", "") == "azure_ai_search" for t in kw["tools"])  # preserved
+    assert kw["instructions"] == "NEW"
+
+
+def test_classic_sync_is_idempotent_and_updates_duplicate_named_agents():
+    from core.azure.analyzer import analyzer_functions
+
+    names = [f.__name__ for f in analyzer_functions()]
+    ok = _classic_agent("tool-agent-in-a-team", fn_names=names, instructions="NEW")
+    dup = _classic_agent("tool-agent-in-a-team", fn_names=("x",))
+    dup.id = "asst_dup"
+    c = FakeClassic([ok, dup])
+    res = fp.sync_classic_agents(c, [_tool_spec()])
+    assert [r["action"] for r in res] == ["unchanged", "update"]
+    assert [u[0] for u in c.updates] == ["asst_dup"]
+
+
+def test_classic_sync_skips_agents_without_code_generated_tools_and_honours_dry_run():
+    other = fp.AgentSpec(name="chat-agent-in-a-team", definition={"instructions": "x"})
+    c = FakeClassic([_classic_agent("chat-agent-in-a-team"), _classic_agent("tool-agent-in-a-team")])
+    assert fp.sync_classic_agents(c, [other]) == []
+    res = fp.sync_classic_agents(c, [_tool_spec()], dry_run=True)
+    assert res[0]["action"] == "would-update" and c.updates == []
