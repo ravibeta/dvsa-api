@@ -454,11 +454,13 @@ class FoundryAgents:
         """Ask ``qwen-agent-in-a-team`` about up to 4 selected curated frames.
 
         Frames go inline (base64) — the managed Qwen deployment can't fetch
-        SAS URLs — see :mod:`core.azure.qwen_agent`. Returns ``None`` when
-        disabled, unconfigured, out of time budget, or on any failure, so it
-        can never break the chat turn.
+        SAS URLs — see :mod:`core.azure.qwen_agent`. Always targets the Azure
+        Foundry agent: ``DVSA_QWEN_ENABLED`` only governs the *local* Qwen
+        server / ``ask_qwen_vlm`` tool and does not gate this. Returns ``None``
+        when unconfigured, out of time budget, or on any failure, so it can
+        never break the chat turn.
         """
-        if not self.configured or not getattr(self.config, "qwen_enabled", False):
+        if not self.configured:
             return None
         from .qwen_agent import REQUEST_TIMEOUT, ask_qwen_agent  # noqa: PLC0415
 
