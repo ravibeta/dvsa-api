@@ -37,6 +37,21 @@ logger = logging.getLogger("apps.azure")
 _TOOL_CALL_POOL = concurrent.futures.ThreadPoolExecutor(
     max_workers=8, thread_name_prefix="dvsa-tool-call"
 )
+# Runs the Qwen vision agent alongside the other team members (see
+# synthesize_from_chat_agent); a separate pool so tool calls can't starve it.
+_QWEN_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="qwen-agent")
+
+
+def _close_thread_db_connections() -> None:
+    """Worker threads get their own Django DB connections; release them."""
+    try:
+        from django.db import connections  # noqa: PLC0415
+
+        connections.close_all()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # Hard per-call timeout for a single tool_executor(tool_call) invocation.
 # Confirmed live: a chat request can hang *forever* with no further log
 # output at all — past every other deadline/round-cap below — because those
@@ -656,6 +671,10 @@ class FoundryAgents:
         # The team may only use the budget up to here; the rest is reserved for
         # the consolidation run so it is never starved.
         team_deadline = deadline - min(_CONSOLIDATION_RESERVE_SECONDS, _CHAT_TURN_MAX_SECONDS / 2)
+        # Qwen only needs the selected frames, not the other agents' results,
+        # so it runs in parallel with them instead of being starved by them.
+        qwen_future = _QWEN_POOL.submit(self._run_qwen_in_thread, query_text, account_id,
+                                        video_id, team_deadline)
         search = self.run_connected_agent(query_text, account_id, video_id)
 
         functions = None
@@ -670,7 +689,7 @@ class FoundryAgents:
         else:
             logger.warning("synthesize_from_chat_agent: skipping run_analyzer_tools, budget exhausted")
 
-        qwen = self.run_qwen_agent(query_text, account_id, video_id, deadline=team_deadline)
+        qwen = self._collect_qwen(qwen_future, team_deadline)
 
         sources = (
             ("Knowledge Search Agent", _source_text(search)),
@@ -725,6 +744,28 @@ class FoundryAgents:
             logger.warning("synthesize_from_chat_agent: consolidation produced no answer")
             return self._plain_summary(query_text, sources)
         return answer
+
+    def _run_qwen_in_thread(self, query_text, account_id, video_id, deadline) -> Optional[str]:
+        try:
+            return self.run_qwen_agent(query_text, account_id, video_id, deadline=deadline)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("run_qwen_agent failed: %s", exc)
+            return None
+        finally:
+            _close_thread_db_connections()
+
+    @staticmethod
+    def _collect_qwen(future, deadline) -> Optional[str]:
+        """Qwen's answer once the parallel run settles (never past ``deadline``)."""
+        try:
+            return future.result(timeout=max(0.0, deadline - time.monotonic()))
+        except concurrent.futures.TimeoutError:
+            logger.warning("synthesize_from_chat_agent: Qwen agent still running at the "
+                           "team deadline; consolidating without it")
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("run_qwen_agent failed: %s", exc)
+            return None
 
     @staticmethod
     def _plain_summary(query_text, sources) -> str:

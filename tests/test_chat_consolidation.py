@@ -111,3 +111,54 @@ def test_team_members_cannot_spend_the_consolidators_reserved_budget(monkeypatch
     agents.synthesize_from_chat_agent("q", "5", "2")
     assert deadlines["final"] - deadlines["team"] >= 19
     assert deadlines["team"] > time.monotonic()
+
+
+# --- Qwen runs in parallel with the rest of the team ---------------------------
+def test_qwen_runs_in_parallel_with_the_other_team_members(monkeypatch):
+    import threading
+    import time
+
+    agents = _team(monkeypatch, qwen=None)
+    qwen_started, others_saw_qwen_running = threading.Event(), []
+
+    def qwen(*a, **k):
+        qwen_started.set()
+        time.sleep(0.3)
+        return "QWEN parallel finding"
+
+    def functions(*a, **k):
+        # Only passes if Qwen was already started (not waiting for us to finish).
+        others_saw_qwen_running.append(qwen_started.wait(timeout=2))
+        return "F"
+
+    monkeypatch.setattr(agents, "run_qwen_agent", qwen)
+    monkeypatch.setattr(agents, "run_function_tools", functions)
+    seen = {}
+    monkeypatch.setattr(agents, "_run_agent",
+                        lambda c, a, content, ex, deadline=None: seen.update(content=content) or "Final.")
+    assert agents.synthesize_from_chat_agent("q", "5", "2") == "Final."
+    assert others_saw_qwen_running == [True]
+    assert "QWEN parallel finding" in seen["content"]
+
+
+def test_qwen_failure_or_slowness_never_blocks_the_consolidated_answer(monkeypatch):
+    import time
+
+    agents = _team(monkeypatch)
+    monkeypatch.setattr(agents, "run_qwen_agent", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    seen = {}
+    monkeypatch.setattr(agents, "_run_agent",
+                        lambda c, a, content, ex, deadline=None: seen.update(content=content) or "Final.")
+    assert agents.synthesize_from_chat_agent("q", "5", "2") == "Final."
+    assert "[Qwen Vision Agent Output]:\nunavailable" in seen["content"]
+
+    # A Qwen call that outlives the team deadline is abandoned, not waited for.
+    agents = _team(monkeypatch)
+    monkeypatch.setattr("core.azure.agents._CONSOLIDATION_RESERVE_SECONDS", 0)
+    monkeypatch.setattr("core.azure.agents._CHAT_TURN_MAX_SECONDS", 1)
+    monkeypatch.setattr(agents, "run_qwen_agent", lambda *a, **k: time.sleep(3) or "LATE_QWEN_ANSWER")
+    monkeypatch.setattr(agents, "_run_agent",
+                        lambda c, a, content, ex, deadline=None: seen.update(content=content) or "Final.")
+    start = time.monotonic()
+    agents.synthesize_from_chat_agent("q", "5", "2")
+    assert time.monotonic() - start < 2.5 and "LATE_QWEN_ANSWER" not in seen["content"]
