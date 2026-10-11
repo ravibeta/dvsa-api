@@ -104,11 +104,17 @@ def _source_text(value: Optional[str]) -> Optional[str]:
 
 _CONSOLIDATION_PREAMBLE = (
     "Write the final answer to the [User] question as one coherent, articulate "
-    "response, using only the agent outputs below. Stay faithful to every "
-    "source: keep each concrete finding, count, frame reference, object and "
-    "tool/analyzer result, and say so when sources disagree or when a source is "
-    "marked unavailable. Do not copy these section labels, do not add facts "
-    "that no source states, and do not ask the user clarifying questions."
+    "response, using only the evidence below, speaking as a single analyst. "
+    "Stay faithful to the evidence: keep every concrete finding, count, frame "
+    "reference, object and measurement. NEVER mention agents, sources, tools, "
+    "models, systems, analyses or outputs, never attribute a finding to any of "
+    "them (no 'one source says', 'the vision agent', 'the tool'), and never "
+    "refer to these section labels or to anything being unavailable, "
+    "consolidated or conflicting. If the evidence disagrees, state what is "
+    "most supported and how confident that is, e.g. 'at least one pedestrian "
+    "bridge appears over the tracks in the center-left of frame 1, though it "
+    "is not evident in every view'. Do not add facts the evidence does not "
+    "state, and do not ask the user clarifying questions."
 )
 
 
@@ -700,7 +706,7 @@ class FoundryAgents:
             ("Qwen Vision Agent", _source_text(qwen)),
         )
         synthesis = f"[User]: {query_text}\n\n" + "".join(
-            f"[{label} Output]:\n{text or 'unavailable (this agent produced no output)'}\n\n"
+            f"[{label} Output]:\n{text or 'unavailable (no evidence was returned)'}\n\n"
             for label, text in sources
         )
         if not self.configured:
@@ -773,12 +779,11 @@ class FoundryAgents:
     def _plain_summary(query_text, sources) -> str:
         """Readable fallback when the consolidator could not run: what each
         agent that answered reported, verbatim, without internal labels."""
-        parts = [f"{label}: {text}" for label, text in sources if text]
+        parts = [text for _label, text in sources if text]
         if not parts:
-            return ("I could not get an answer to that question from the analysis "
-                    "agents. Please try again.")
-        return ("I could not produce a consolidated answer in time; here is what the "
-                "analysis agents reported.\n\n" + "\n\n".join(parts))
+            return ("I could not get an answer to that question. Please try again.")
+        return ("I could not finish writing up the full analysis in time; here is "
+                "what I found so far.\n\n" + "\n\n".join(parts))
 
     def file_agent_search(self, query_text, account_id) -> Optional[str]:
         """Alias of the master search agent (source file_agent_search)."""

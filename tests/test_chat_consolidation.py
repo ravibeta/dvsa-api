@@ -74,6 +74,7 @@ def test_consolidator_gets_every_source_and_marks_missing_ones_unavailable(monke
     assert "[Knowledge Search Agent Output]:\nunavailable" in c       # not the literal "None"
     assert "Output]:\nNone" not in c
     assert "faithful" in c                                            # fidelity instruction travels with the data
+    assert "NEVER mention agents" in c                                # one unified voice, no agent attribution
 
 
 def test_failed_consolidation_returns_readable_summary_not_the_raw_bundle(monkeypatch):
