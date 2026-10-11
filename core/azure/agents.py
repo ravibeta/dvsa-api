@@ -68,6 +68,33 @@ _AGENT_MAX_TOOL_ROUNDS = 6
 # Consecutive failures of the *same* function name before we tell the model
 # outright to stop calling it and answer with what it already has.
 _MAX_REPEATED_TOOL_FAILURES = 2
+# Slice of _CHAT_TURN_MAX_SECONDS held back for the final consolidation run, so
+# the team members (function / analyzer / Qwen agents) can't spend the whole
+# shared budget and leave the consolidator nothing -- which used to make the
+# raw "[User]: ... [Agent Output]: ..." bundle come back as the "answer".
+_CONSOLIDATION_RESERVE_SECONDS = 20
+
+
+def _message_role(msg: Any) -> str:
+    """Lower-cased role of a thread message (enum or plain string)."""
+    role = getattr(msg, "role", None)
+    return str(getattr(role, "value", role) or "").lower()
+
+
+def _source_text(value: Optional[str]) -> Optional[str]:
+    """A team member's output, or None when it produced nothing usable."""
+    text = (value or "").strip()
+    return None if text.lower() in ("", "none", "null") else text
+
+
+_CONSOLIDATION_PREAMBLE = (
+    "Write the final answer to the [User] question as one coherent, articulate "
+    "response, using only the agent outputs below. Stay faithful to every "
+    "source: keep each concrete finding, count, frame reference, object and "
+    "tool/analyzer result, and say so when sources disagree or when a source is "
+    "marked unavailable. Do not copy these section labels, do not add facts "
+    "that no source states, and do not ask the user clarifying questions."
+)
 
 
 def _json_safe(o: Any) -> Any:
@@ -309,6 +336,12 @@ class FoundryAgents:
                 )
         messages = agents_client.messages.list(thread_id=thread.id, order=ListSortOrder.ASCENDING)
         for msg in messages:
+            # Only the agent's own reply counts. The thread also holds the
+            # *user* message we posted; when a run is cancelled / fails / hits
+            # the deadline before replying, that message used to be returned as
+            # the "answer" -- i.e. the caller's input echoed straight back.
+            if _message_role(msg) != "assistant":
+                continue
             if msg.text_messages:
                 answer = msg.text_messages[-1].text.value
         return answer
@@ -620,42 +653,47 @@ class FoundryAgents:
         with whatever the team already produced.
         """
         deadline = time.monotonic() + _CHAT_TURN_MAX_SECONDS
+        # The team may only use the budget up to here; the rest is reserved for
+        # the consolidation run so it is never starved.
+        team_deadline = deadline - min(_CONSOLIDATION_RESERVE_SECONDS, _CHAT_TURN_MAX_SECONDS / 2)
         search = self.run_connected_agent(query_text, account_id, video_id)
 
         functions = None
-        if time.monotonic() < deadline:
-            functions = self.run_function_tools(query_text, account_id, video_id, deadline=deadline)
+        if time.monotonic() < team_deadline:
+            functions = self.run_function_tools(query_text, account_id, video_id, deadline=team_deadline)
         else:
             logger.warning("synthesize_from_chat_agent: skipping run_function_tools, budget exhausted")
 
         analyzer = None
-        if time.monotonic() < deadline:
-            analyzer = self.run_analyzer_tools(query_text, account_id, video_id, deadline=deadline)
+        if time.monotonic() < team_deadline:
+            analyzer = self.run_analyzer_tools(query_text, account_id, video_id, deadline=team_deadline)
         else:
             logger.warning("synthesize_from_chat_agent: skipping run_analyzer_tools, budget exhausted")
 
-        qwen = self.run_qwen_agent(query_text, account_id, video_id, deadline=deadline)
+        qwen = self.run_qwen_agent(query_text, account_id, video_id, deadline=team_deadline)
 
-        synthesis = (
-            f"[User]: {query_text}\n\n"
-            f"[Knowledge Search Agent Output]:\n{search}\n\n"
-            f"[Connected Function Agent Output]:\n{functions}\n\n"
-            f"[Tool Agent Output]:\n{analyzer}\n\n"
-            f"[Qwen Vision Agent Output]:\n{qwen}\n"
+        sources = (
+            ("Knowledge Search Agent", _source_text(search)),
+            ("Connected Function Agent", _source_text(functions)),
+            ("Tool Agent", _source_text(analyzer)),
+            ("Qwen Vision Agent", _source_text(qwen)),
+        )
+        synthesis = f"[User]: {query_text}\n\n" + "".join(
+            f"[{label} Output]:\n{text or 'unavailable (this agent produced no output)'}\n\n"
+            for label, text in sources
         )
         if not self.configured:
             return self._echo(synthesis)
         if time.monotonic() >= deadline:
-            # No budget left for the final narration pass either — return the
-            # raw synthesis rather than starting a run that would just be cut
-            # off immediately.
+            # No budget left for the final narration pass either.
             logger.warning("synthesize_from_chat_agent: skipping final narration, budget exhausted")
-            return synthesis
+            return self._plain_summary(query_text, sources)
         from azure.ai.agents.models import (  # noqa: PLC0415
             OpenApiConnectionAuthDetails, OpenApiTool, RunStepOpenAPIToolCall,
         )
 
         agents_client = self._agents_client()
+        consolidation_input = f"{_CONSOLIDATION_PREAMBLE}\n\n{synthesis}"
         instructions = (
             "You are an aerial drone image analyst who consolidates and rephrases "
             "answers from other agents into a smooth narrative without bullet points, "
@@ -678,10 +716,26 @@ class FoundryAgents:
                         return api.execute(tool_call)
                     return None
 
-                answer = self._run_agent(agents_client, agent, synthesis, _exec, deadline=deadline)
+                answer = self._run_agent(agents_client, agent, consolidation_input, _exec, deadline=deadline)
             else:
-                answer = self._run_agent(agents_client, agent, synthesis, None, deadline=deadline)
-        return answer or synthesis
+                answer = self._run_agent(agents_client, agent, consolidation_input, None, deadline=deadline)
+        if not _source_text(answer) or answer.lstrip().startswith("[User]:"):
+            # The consolidator produced nothing usable (failed / cancelled run);
+            # never hand the raw agent bundle back as if it were the answer.
+            logger.warning("synthesize_from_chat_agent: consolidation produced no answer")
+            return self._plain_summary(query_text, sources)
+        return answer
+
+    @staticmethod
+    def _plain_summary(query_text, sources) -> str:
+        """Readable fallback when the consolidator could not run: what each
+        agent that answered reported, verbatim, without internal labels."""
+        parts = [f"{label}: {text}" for label, text in sources if text]
+        if not parts:
+            return ("I could not get an answer to that question from the analysis "
+                    "agents. Please try again.")
+        return ("I could not produce a consolidated answer in time; here is what the "
+                "analysis agents reported.\n\n" + "\n\n".join(parts))
 
     def file_agent_search(self, query_text, account_id) -> Optional[str]:
         """Alias of the master search agent (source file_agent_search)."""
