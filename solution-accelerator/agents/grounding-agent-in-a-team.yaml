@@ -1,0 +1,26 @@
+metadata:
+  microsoft.voice-live.enabled: "false"
+object: agent.version
+id: grouding-agent-in-a-team:1
+name: grouding-agent-in-a-team
+version: "1"
+description: ""
+created_at: 1790566206
+definition:
+  kind: prompt
+  model: gpt-4o-mini
+  instructions: Use copilot.microsoft.com to answer user queries.
+  tools:
+    - type: web_search
+draft: false
+status: active
+instance_identity:
+  principal_id: 0d3b41be-4b1a-4af3-b97c-634863fda9a3
+  client_id: 0d3b41be-4b1a-4af3-b97c-634863fda9a3
+blueprint:
+  principal_id: e42c09c4-0c08-45e5-8ac4-7bb303a38a70
+  client_id: 41b29784-d842-4b5e-82d8-6f51737b404c
+blueprint_reference:
+  type: ManagedAgentIdentityBlueprint
+  blueprint_id: grouding-agent-in-a-team-55563
+agent_guid: 55563ad0-2be8-4de9-8808-fcabaff7e767

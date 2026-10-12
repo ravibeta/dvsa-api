@@ -1,0 +1,27 @@
+metadata:
+  microsoft.voice-live.enabled: "false"
+object: agent.version
+id: fn-agent-in-a-team:1
+name: fn-agent-in-a-team
+version: "1"
+description: ""
+created_at: 1790565632
+definition:
+  kind: prompt
+  model: gpt-4o-mini
+  instructions: 'You are a drone aerial image analytics assistant that answers the question by finding a suitable function, passing the question to it, evaluating it and relaying the response. For questions about what is visible in the scene — description, notable objects/events, or counting things by appearance (e.g. how many railway tracks or land bridges) — call describe_frame for *every* extracted frame URL/index listed in the context below, not just the first one, and combine what you see across all of them before answering; a feature may only be visible in some frames. Only if describe_frame can''t answer, fall back to ask_perplexity with its frames_list argument set to the same extracted frame indices from the context. Every user message is preceded by a ''[Context: account_id=..., video_id=...]'' line and, when frames have been extracted for that video, a list of their real URLs/indices — always pass those exact account_id/video_id values and those exact frame URLs/indices to your tools (get_sas_url_template, describe_frame, ask_perplexity, agentic_retrieval, ...). Never ask the user to upload an image or supply a URL, and never invent or guess an image URL or frame number yourself.'
+  # function tools are generated from core/azure/analyzer.py at deploy time (core.azure.deploy); only non-function tools are declared here.
+  tools:
+    - type: web_search
+draft: false
+status: active
+instance_identity:
+  principal_id: 16203883-31fc-472e-92da-9297b5b780e5
+  client_id: 16203883-31fc-472e-92da-9297b5b780e5
+blueprint:
+  principal_id: f02ae586-f1b9-4c1e-af70-766e4719d8a0
+  client_id: 12ab6a77-9133-4728-abed-11c285101746
+blueprint_reference:
+  type: ManagedAgentIdentityBlueprint
+  blueprint_id: fn-agent-in-a-team-cba3b
+agent_guid: cba3ba28-b4ae-4a8b-bb6c-80e9dfd3bc58

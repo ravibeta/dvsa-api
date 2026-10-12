@@ -1,0 +1,35 @@
+metadata:
+  description: ""
+  modified_at: "1790566008"
+  microsoft.voice-live.enabled: "false"
+object: agent.version
+id: scene-search-agent:2
+name: scene-search-agent
+version: "2"
+description: ""
+created_at: 1790566009
+definition:
+  kind: prompt
+  model: gpt-4o-mini
+  instructions: ""
+  tools:
+    - type: web_search
+    - type: azure_ai_search
+      azure_ai_search:
+        indexes:
+          - project_connection_id: /subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${PROJECT}/connections/${SEARCH_SERVICE}
+            index_name: dvsa-index
+            query_type: simple
+            top_k: 5
+draft: false
+status: active
+instance_identity:
+  principal_id: cbc0f2eb-e477-420d-a649-9b40d90d35a8
+  client_id: cbc0f2eb-e477-420d-a649-9b40d90d35a8
+blueprint:
+  principal_id: 857f3b4f-b8bb-4144-b1dd-c65e7b4fef96
+  client_id: 135186a4-d039-44c3-bce9-cff15490cad9
+blueprint_reference:
+  type: ManagedAgentIdentityBlueprint
+  blueprint_id: scene-search-agent-in-a-team-899bd
+agent_guid: 899bdc03-5012-4f87-a4e6-db10ffacb797

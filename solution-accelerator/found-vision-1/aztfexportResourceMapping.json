@@ -1,0 +1,7 @@
+{
+	"/subscriptions/656e67c6-f810-4ea6-8b89-636dd0b6774c/resourceGroups/rg-ctl-2/providers/Microsoft.CognitiveServices/accounts/found-vision-1": {
+		"resource_id": "/subscriptions/656e67c6-f810-4ea6-8b89-636dd0b6774c/resourceGroups/rg-ctl-2/providers/Microsoft.CognitiveServices/accounts/found-vision-1",
+		"resource_type": "azurerm_cognitive_account",
+		"resource_name": "res-0"
+	}
+}

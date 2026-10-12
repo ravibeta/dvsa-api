@@ -401,6 +401,27 @@ class FoundryAgents:
         return self._run_function_agent(query_text, self.config.tool_agent_name, analyzer_functions(),
                                         account_id=account_id, video_id=video_id, deadline=deadline)
 
+    # ----- qwen vision agent ----------------------------------------------
+    def run_qwen_agent(self, query_text, account_id, video_id=None, deadline=None) -> Optional[str]:
+        """Ask ``qwen-agent-in-a-team`` about up to 4 selected curated frames.
+
+        Frames go inline (base64) — the managed Qwen deployment can't fetch
+        SAS URLs — see :mod:`core.azure.qwen_agent`. Returns ``None`` when
+        disabled, unconfigured, out of time budget, or on any failure, so it
+        can never break the chat turn.
+        """
+        if not self.configured or not getattr(self.config, "qwen_enabled", False):
+            return None
+        from .qwen_agent import REQUEST_TIMEOUT, ask_qwen_agent  # noqa: PLC0415
+
+        timeout = REQUEST_TIMEOUT
+        if deadline is not None:
+            timeout = min(timeout, deadline - time.monotonic())
+            if timeout <= 1:
+                logger.warning("run_qwen_agent: skipped, budget exhausted")
+                return None
+        return ask_qwen_agent(self.config, query_text, account_id, video_id, timeout=timeout)
+
     # ----- AI-search knowledge agent ------------------------------------
     def run_connected_agent(self, query_text, account_id, video_id=None,
                             index_name=None) -> Optional[str]:
@@ -613,11 +634,14 @@ class FoundryAgents:
         else:
             logger.warning("synthesize_from_chat_agent: skipping run_analyzer_tools, budget exhausted")
 
+        qwen = self.run_qwen_agent(query_text, account_id, video_id, deadline=deadline)
+
         synthesis = (
             f"[User]: {query_text}\n\n"
             f"[Knowledge Search Agent Output]:\n{search}\n\n"
             f"[Connected Function Agent Output]:\n{functions}\n\n"
-            f"[Tool Agent Output]:\n{analyzer}\n"
+            f"[Tool Agent Output]:\n{analyzer}\n\n"
+            f"[Qwen Vision Agent Output]:\n{qwen}\n"
         )
         if not self.configured:
             return self._echo(synthesis)

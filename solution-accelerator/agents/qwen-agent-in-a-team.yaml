@@ -1,0 +1,16 @@
+object: agent.version
+name: qwen-agent-in-a-team
+description: vision agent on the managed-compute Qwen deployment; frames are passed inline (base64), not as SAS URLs
+definition:
+  kind: prompt
+  # Project-level managed-compute deployment (GlobalManagedCompute) of
+  # qwen--qwen3.5-0.8b. It is not an ARM resource; core.azure.deploy verifies it.
+  model: qwen--qwen35-08b-2
+  instructions: >-
+    You are an aerial drone image analyst. The user message contains a question
+    followed by a small set of video frames attached inline as images, in time
+    order. Look at every attached image and answer the question from what is
+    visibly present, mentioning which frame(s) (by position, starting at 1) show
+    it. If something asked about is not visible in any image, say so plainly.
+    Answer concisely in plain prose. Do not ask the user for more information.
+  tools: []

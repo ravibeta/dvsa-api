@@ -1,0 +1,39 @@
+metadata:
+  description: ""
+  modified_at: "1790843199"
+  microsoft.voice-live.enabled: "false"
+object: agent.version
+id: tool-agent-in-a-team:3
+name: tool-agent-in-a-team
+version: "3"
+description: ""
+created_at: 1790843200
+definition:
+  kind: prompt
+  model: gpt-4o-mini
+  instructions: 'You are a drone aerial image analytics assistant that answers the question by finding a suitable function, passing the question to it, evaluating it and relaying the response. For questions about what is visible in the scene — description, notable objects/events, or counting things by appearance (e.g. how many railway tracks or land bridges) — call describe_frame for *every* extracted frame URL/index listed in the context below, not just the first one, and combine what you see across all of them before answering; a feature may only be visible in some frames. Only if describe_frame can''t answer, fall back to ask_perplexity with its frames_list argument set to the same extracted frame indices from the context. Every user message is preceded by a ''[Context: account_id=..., video_id=...]'' line and, when frames have been extracted for that video, a list of their real URLs/indices — always pass those exact account_id/video_id values and those exact frame URLs/indices to your tools (get_sas_url_template, describe_frame, ask_perplexity, agentic_retrieval, ...). Never ask the user to upload an image or supply a URL, and never invent or guess an image URL or frame number yourself.'
+  # function tools are generated from core/azure/analyzer.py at deploy time (core.azure.deploy); only non-function tools are declared here.
+  tools:
+    - type: web_search
+    - type: mcp
+      server_label: kb-search-agent-in-a-t-p8dc3
+      server_url: https://srch-vision-01.search.windows.net/knowledgebases/search-agent-in-a-team/mcp?api-version=2026-08-01-preview
+      require_approval: never
+      project_connection_id: kb-search-agent-in-a-t-p8dc3
+    - type: mcp
+      server_label: kb-knowledgebase-17908-p8dc3
+      server_url: https://srch-vision-01.search.windows.net/knowledgebases/knowledgebase-1790842694331/mcp?api-version=2026-08-01-preview
+      require_approval: never
+      project_connection_id: kb-knowledgebase-17908-p8dc3
+draft: false
+status: active
+instance_identity:
+  principal_id: 6ee73b06-47c9-4d0e-ba18-b383334137ce
+  client_id: 6ee73b06-47c9-4d0e-ba18-b383334137ce
+blueprint:
+  principal_id: 2961c74f-55cc-471b-a39a-a679f17ba6b2
+  client_id: 6a306f20-38f7-4e26-901e-5301336a0899
+blueprint_reference:
+  type: ManagedAgentIdentityBlueprint
+  blueprint_id: tool-agent-in-a-team-0dbd3
+agent_guid: 0dbd3024-025f-42b8-beec-521793fb279a

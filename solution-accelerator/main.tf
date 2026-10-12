@@ -1,15 +1,14 @@
-terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = ">=3.74.0"
-    }
-  }
-}
+#--------------------------------------
+# DVSA solution accelerator
+#
+# ARM resources are declared here; the project *data plane* (the search indexes
+# and the Foundry agents) is registered by core/azure/deploy.py in the same
+# apply -- see deploy.tf. The index schema and the agent definitions are not
+# duplicated in HCL: they live in core/azure/index_schema.py and
+# solution-accelerator/agents/*.yaml so the runtime and the IaC cannot drift.
+#--------------------------------------
 
-provider "azurerm" {
-  features {}
-}
+data "azurerm_client_config" "current" {}
 
 #--------------------------------------
 # 1. Resource Group
@@ -20,7 +19,9 @@ resource "azurerm_resource_group" "rg" {
 }
 
 #--------------------------------------
-# 2. Azure Cognitive Search Service
+# 2. Azure AI Search service
+#    (the base "dvsa-index" and every per-account "dvsa-index-s-<account>" are
+#    created on this service by core/azure -- they are data-plane objects.)
 #--------------------------------------
 resource "azurerm_search_service" "search" {
   name                = var.search_service_name
@@ -29,223 +30,14 @@ resource "azurerm_search_service" "search" {
   sku                 = var.search_sku
   partition_count     = 1
   replica_count       = 1
-}
 
-#--------------------------------------
-# 3. AI Search Index Definition
-#--------------------------------------
-resource "azurerm_search_index" "index007" {
-  name                = var.search_index_name
-  service_name        = azurerm_search_service.search.name
-  resource_group_name = azurerm_resource_group.rg.name
+  # Semantic ranker: used by the index's "dvsa-semantic" configuration.
+  semantic_search_sku = var.search_semantic_sku
 
-  field {
-    name         = "id"
-    type         = "Edm.String"
-    key          = true
-    retrievable  = true
-    searchable   = false
-  }
+  # DVSA authenticates with the admin key and Entra ID.
+  local_authentication_enabled = true
 
-  field {
-    name        = "description"
-    type        = "Edm.String"
-    searchable  = true
-    filterable  = true
-    retrievable = true
-    sortable    = true
-    facetable   = true
-  }
-
-  field {
-    name                  = "vector"
-    type                  = "Collection(Edm.Single)"
-    searchable            = true
-    retrievable           = true
-    dimensions            = var.vector_dimensions
-    vector_search_profile = "myHnswProfile"
-  }
-
-  field {
-    name        = "objects"
-    type        = "Edm.String"
-    searchable  = true
-    filterable  = true
-    retrievable = true
-    sortable    = true
-    facetable   = true
-    analyzer    = "standard.lucene"
-  }
-
-  field {
-    name        = "tags"
-    type        = "Edm.String"
-    searchable  = true
-    filterable  = true
-    retrievable = true
-    sortable    = true
-    facetable   = true
-    analyzer    = "standard.lucene"
-  }
-
-  field {
-    name        = "title"
-    type        = "Edm.String"
-    searchable  = true
-    filterable  = true
-    retrievable = true
-    sortable    = true
-    facetable   = true
-    analyzer    = "standard.lucene"
-  }
-
-  field {
-    name        = "imageurl"
-    type        = "Edm.String"
-    searchable  = true
-    filterable  = true
-    retrievable = true
-    sortable    = true
-    facetable   = true
-    analyzer    = "standard.lucene"
-  }
-
-  field {
-    name        = "location"
-    type        = "Edm.String"
-    searchable  = true
-    filterable  = true
-    retrievable = true
-    sortable    = true
-    facetable   = true
-    analyzer    = "standard.lucene"
-  }
-
-  field {
-    name        = "boundingbox"
-    type        = "Edm.String"
-    searchable  = true
-    filterable  = true
-    retrievable = true
-    sortable    = true
-    facetable   = true
-    analyzer    = "standard.lucene"
-  }
-
-  field {
-    name        = "created"
-    type        = "Edm.DateTimeOffset"
-    searchable  = false
-    filterable  = true
-    retrievable = true
-    sortable    = true
-    facetable   = true
-  }
-
-  field {
-    name        = "account_id"
-    type        = "Edm.String"
-    searchable  = true
-    filterable  = true
-    retrievable = true
-    sortable    = true
-    facetable   = true
-    analyzer    = "standard.lucene"
-  }
-
-  field {
-    name        = "geotags"
-    type        = "Edm.String"
-    searchable  = true
-    filterable  = true
-    retrievable = true
-    sortable    = true
-    facetable   = true
-    analyzer    = "standard.lucene"
-  }
-
-  #--------------------------------------
-  # Vector Search Configuration
-  #--------------------------------------
-  vector_search {
-    algorithm {
-      name = "myHnsw"
-      kind = "hnsw"
-
-      hnsw_parameters {
-        metric          = "cosine"
-        m               = 4
-        ef_construction = 400
-        ef_search       = 1000
-      }
-    }
-
-    algorithm {
-      name = "myExhaustiveKnn"
-      kind = "exhaustiveKnn"
-
-      exhaustive_knn_parameters {
-        metric = "cosine"
-      }
-    }
-
-    profile {
-      name      = "myHnswProfile"
-      algorithm = "myHnsw"
-      vectorizer = "vectorizer-1748574121416"
-    }
-
-    profile {
-      name      = "myExhaustiveKnnProfile"
-      algorithm = "myExhaustiveKnn"
-      vectorizer = "vectorizer-1748574121416"
-    }
-
-    vectorizer {
-      name = "vectorizer-1748574121416"
-      kind = "azureOpenAI"
-
-      azure_openai_parameters {
-        resource_uri  = "https://openvision.openai.azure.com"
-        deployment_id = "text-embedding-ada-002"
-      }
-    }
-  }
-
-  #--------------------------------------
-  # Similarity & Semantic Configurations
-  #--------------------------------------
-  similarity {
-    odatatype = "#Microsoft.Azure.Search.BM25Similarity"
-  }
-
-  semantic_settings {
-    default_configuration = "mysemantic"
-
-    configuration {
-      name = "mysemantic"
-
-      prioritized_fields {
-        title_field {
-          field_name = "description"
-        }
-
-        prioritized_content_fields {
-          field_name = "id"
-        }
-
-        prioritized_content_fields {
-          field_name = "description"
-        }
-
-        prioritized_keywords_fields {
-          field_name = "id"
-        }
-
-        prioritized_keywords_fields {
-          field_name = "description"
-        }
-      }
-    }
+  identity {
+    type = "SystemAssigned"
   }
 }
