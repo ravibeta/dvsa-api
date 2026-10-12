@@ -131,12 +131,15 @@ def _agents(qwen_enabled=True):
     return FoundryAgents(SimpleNamespace(project_endpoint=ENDPOINT, qwen_enabled=qwen_enabled))
 
 
-def test_run_qwen_agent_disabled_unconfigured_or_out_of_budget_returns_none(monkeypatch):
+def test_run_qwen_agent_ignores_local_flag_but_needs_config_and_budget(monkeypatch):
     import time
 
     called = []
     monkeypatch.setattr(qa, "ask_qwen_agent", lambda *a, **k: called.append(1) or "x")
-    assert _agents(qwen_enabled=False).run_qwen_agent("q", "5") is None
+    # DVSA_QWEN_ENABLED is the *local* Qwen switch; the Azure agent ignores it.
+    assert _agents(qwen_enabled=False).run_qwen_agent("q", "5") == "x"
+    assert called == [1]
+    called.clear()
     assert FoundryAgents(SimpleNamespace(project_endpoint=None, qwen_enabled=True)).run_qwen_agent("q", "5") is None
     assert _agents().run_qwen_agent("q", "5", deadline=time.monotonic() - 1) is None
     assert called == []

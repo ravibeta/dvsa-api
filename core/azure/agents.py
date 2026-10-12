@@ -37,6 +37,21 @@ logger = logging.getLogger("apps.azure")
 _TOOL_CALL_POOL = concurrent.futures.ThreadPoolExecutor(
     max_workers=8, thread_name_prefix="dvsa-tool-call"
 )
+# Runs the Qwen vision agent alongside the other team members (see
+# synthesize_from_chat_agent); a separate pool so tool calls can't starve it.
+_QWEN_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="qwen-agent")
+
+
+def _close_thread_db_connections() -> None:
+    """Worker threads get their own Django DB connections; release them."""
+    try:
+        from django.db import connections  # noqa: PLC0415
+
+        connections.close_all()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # Hard per-call timeout for a single tool_executor(tool_call) invocation.
 # Confirmed live: a chat request can hang *forever* with no further log
 # output at all — past every other deadline/round-cap below — because those
@@ -68,6 +83,39 @@ _AGENT_MAX_TOOL_ROUNDS = 6
 # Consecutive failures of the *same* function name before we tell the model
 # outright to stop calling it and answer with what it already has.
 _MAX_REPEATED_TOOL_FAILURES = 2
+# Slice of _CHAT_TURN_MAX_SECONDS held back for the final consolidation run, so
+# the team members (function / analyzer / Qwen agents) can't spend the whole
+# shared budget and leave the consolidator nothing -- which used to make the
+# raw "[User]: ... [Agent Output]: ..." bundle come back as the "answer".
+_CONSOLIDATION_RESERVE_SECONDS = 20
+
+
+def _message_role(msg: Any) -> str:
+    """Lower-cased role of a thread message (enum or plain string)."""
+    role = getattr(msg, "role", None)
+    return str(getattr(role, "value", role) or "").lower()
+
+
+def _source_text(value: Optional[str]) -> Optional[str]:
+    """A team member's output, or None when it produced nothing usable."""
+    text = (value or "").strip()
+    return None if text.lower() in ("", "none", "null") else text
+
+
+_CONSOLIDATION_PREAMBLE = (
+    "Write the final answer to the [User] question as one coherent, articulate "
+    "response, using only the evidence below, speaking as a single analyst. "
+    "Stay faithful to the evidence: keep every concrete finding, count, frame "
+    "reference, object and measurement. NEVER mention agents, sources, tools, "
+    "models, systems, analyses or outputs, never attribute a finding to any of "
+    "them (no 'one source says', 'the vision agent', 'the tool'), and never "
+    "refer to these section labels or to anything being unavailable, "
+    "consolidated or conflicting. If the evidence disagrees, state what is "
+    "most supported and how confident that is, e.g. 'at least one pedestrian "
+    "bridge appears over the tracks in the center-left of frame 1, though it "
+    "is not evident in every view'. Do not add facts the evidence does not "
+    "state, and do not ask the user clarifying questions."
+)
 
 
 def _json_safe(o: Any) -> Any:
@@ -309,6 +357,12 @@ class FoundryAgents:
                 )
         messages = agents_client.messages.list(thread_id=thread.id, order=ListSortOrder.ASCENDING)
         for msg in messages:
+            # Only the agent's own reply counts. The thread also holds the
+            # *user* message we posted; when a run is cancelled / fails / hits
+            # the deadline before replying, that message used to be returned as
+            # the "answer" -- i.e. the caller's input echoed straight back.
+            if _message_role(msg) != "assistant":
+                continue
             if msg.text_messages:
                 answer = msg.text_messages[-1].text.value
         return answer
@@ -406,11 +460,13 @@ class FoundryAgents:
         """Ask ``qwen-agent-in-a-team`` about up to 4 selected curated frames.
 
         Frames go inline (base64) — the managed Qwen deployment can't fetch
-        SAS URLs — see :mod:`core.azure.qwen_agent`. Returns ``None`` when
-        disabled, unconfigured, out of time budget, or on any failure, so it
-        can never break the chat turn.
+        SAS URLs — see :mod:`core.azure.qwen_agent`. Always targets the Azure
+        Foundry agent: ``DVSA_QWEN_ENABLED`` only governs the *local* Qwen
+        server / ``ask_qwen_vlm`` tool and does not gate this. Returns ``None``
+        when unconfigured, out of time budget, or on any failure, so it can
+        never break the chat turn.
         """
-        if not self.configured or not getattr(self.config, "qwen_enabled", False):
+        if not self.configured:
             return None
         from .qwen_agent import REQUEST_TIMEOUT, ask_qwen_agent  # noqa: PLC0415
 
@@ -620,42 +676,51 @@ class FoundryAgents:
         with whatever the team already produced.
         """
         deadline = time.monotonic() + _CHAT_TURN_MAX_SECONDS
+        # The team may only use the budget up to here; the rest is reserved for
+        # the consolidation run so it is never starved.
+        team_deadline = deadline - min(_CONSOLIDATION_RESERVE_SECONDS, _CHAT_TURN_MAX_SECONDS / 2)
+        # Qwen only needs the selected frames, not the other agents' results,
+        # so it runs in parallel with them instead of being starved by them.
+        qwen_future = _QWEN_POOL.submit(self._run_qwen_in_thread, query_text, account_id,
+                                        video_id, team_deadline)
         search = self.run_connected_agent(query_text, account_id, video_id)
 
         functions = None
-        if time.monotonic() < deadline:
-            functions = self.run_function_tools(query_text, account_id, video_id, deadline=deadline)
+        if time.monotonic() < team_deadline:
+            functions = self.run_function_tools(query_text, account_id, video_id, deadline=team_deadline)
         else:
             logger.warning("synthesize_from_chat_agent: skipping run_function_tools, budget exhausted")
 
         analyzer = None
-        if time.monotonic() < deadline:
-            analyzer = self.run_analyzer_tools(query_text, account_id, video_id, deadline=deadline)
+        if time.monotonic() < team_deadline:
+            analyzer = self.run_analyzer_tools(query_text, account_id, video_id, deadline=team_deadline)
         else:
             logger.warning("synthesize_from_chat_agent: skipping run_analyzer_tools, budget exhausted")
 
-        qwen = self.run_qwen_agent(query_text, account_id, video_id, deadline=deadline)
+        qwen = self._collect_qwen(qwen_future, team_deadline)
 
-        synthesis = (
-            f"[User]: {query_text}\n\n"
-            f"[Knowledge Search Agent Output]:\n{search}\n\n"
-            f"[Connected Function Agent Output]:\n{functions}\n\n"
-            f"[Tool Agent Output]:\n{analyzer}\n\n"
-            f"[Qwen Vision Agent Output]:\n{qwen}\n"
+        sources = (
+            ("Knowledge Search Agent", _source_text(search)),
+            ("Connected Function Agent", _source_text(functions)),
+            ("Tool Agent", _source_text(analyzer)),
+            ("Qwen Vision Agent", _source_text(qwen)),
+        )
+        synthesis = f"[User]: {query_text}\n\n" + "".join(
+            f"[{label} Output]:\n{text or 'unavailable (no evidence was returned)'}\n\n"
+            for label, text in sources
         )
         if not self.configured:
             return self._echo(synthesis)
         if time.monotonic() >= deadline:
-            # No budget left for the final narration pass either — return the
-            # raw synthesis rather than starting a run that would just be cut
-            # off immediately.
+            # No budget left for the final narration pass either.
             logger.warning("synthesize_from_chat_agent: skipping final narration, budget exhausted")
-            return synthesis
+            return self._plain_summary(query_text, sources)
         from azure.ai.agents.models import (  # noqa: PLC0415
             OpenApiConnectionAuthDetails, OpenApiTool, RunStepOpenAPIToolCall,
         )
 
         agents_client = self._agents_client()
+        consolidation_input = f"{_CONSOLIDATION_PREAMBLE}\n\n{synthesis}"
         instructions = (
             "You are an aerial drone image analyst who consolidates and rephrases "
             "answers from other agents into a smooth narrative without bullet points, "
@@ -678,10 +743,47 @@ class FoundryAgents:
                         return api.execute(tool_call)
                     return None
 
-                answer = self._run_agent(agents_client, agent, synthesis, _exec, deadline=deadline)
+                answer = self._run_agent(agents_client, agent, consolidation_input, _exec, deadline=deadline)
             else:
-                answer = self._run_agent(agents_client, agent, synthesis, None, deadline=deadline)
-        return answer or synthesis
+                answer = self._run_agent(agents_client, agent, consolidation_input, None, deadline=deadline)
+        if not _source_text(answer) or answer.lstrip().startswith("[User]:"):
+            # The consolidator produced nothing usable (failed / cancelled run);
+            # never hand the raw agent bundle back as if it were the answer.
+            logger.warning("synthesize_from_chat_agent: consolidation produced no answer")
+            return self._plain_summary(query_text, sources)
+        return answer
+
+    def _run_qwen_in_thread(self, query_text, account_id, video_id, deadline) -> Optional[str]:
+        try:
+            return self.run_qwen_agent(query_text, account_id, video_id, deadline=deadline)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("run_qwen_agent failed: %s", exc)
+            return None
+        finally:
+            _close_thread_db_connections()
+
+    @staticmethod
+    def _collect_qwen(future, deadline) -> Optional[str]:
+        """Qwen's answer once the parallel run settles (never past ``deadline``)."""
+        try:
+            return future.result(timeout=max(0.0, deadline - time.monotonic()))
+        except concurrent.futures.TimeoutError:
+            logger.warning("synthesize_from_chat_agent: Qwen agent still running at the "
+                           "team deadline; consolidating without it")
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("run_qwen_agent failed: %s", exc)
+            return None
+
+    @staticmethod
+    def _plain_summary(query_text, sources) -> str:
+        """Readable fallback when the consolidator could not run: what each
+        agent that answered reported, verbatim, without internal labels."""
+        parts = [text for _label, text in sources if text]
+        if not parts:
+            return ("I could not get an answer to that question. Please try again.")
+        return ("I could not finish writing up the full analysis in time; here is "
+                "what I found so far.\n\n" + "\n\n".join(parts))
 
     def file_agent_search(self, query_text, account_id) -> Optional[str]:
         """Alias of the master search agent (source file_agent_search)."""
