@@ -4,6 +4,7 @@
 > **Source proposal:** `VirtualLocationtimestamp.docx` (repo root, untracked; note the lowercase "t").
 > **Workflow (CLAUDE.md):** restate understanding → get confirmation → plan → commit/push/PR in reviewable stages → plan tests after any logic change. Never touch `db/migrations/` unless asked (see §5.4 — new models *will* need migrations, so that needs explicit approval).
 
+> **Revision 4:** added an open-source photogrammetry provider (OpenDroneMap / OpenSfM) that builds a single orthomosaic from frames extracted from multiple drone tours (new §8.3, phase P7, §12 endpoints, §14 Q17–Q22, §15, §16). This makes orthomosaics a DVSA *output* (today there is no orthomosaic code), and gives Path B a concrete reconstruction provider.
 > **Revision 3:** added a post-processing geometry & kinematics engine (new §10.1, phase P6, §14 Q13–Q16, §15, §16). Existing state it builds on: `survey_corners.py` (4 corner *frames*, not stored), `geometry.py` (homography), `tracking.py` (pixel-unit SORT trajectories), and an index that is write-once (no merge/update, no back-fill job).
 > **Revision 2 (after reviewing `aerial_location/`):** Path C now builds on the reference script `aerial_location/locate_aerial.py` (see §3, §8.2, P4, §14 Q9–Q12, §15, §16). P0 is unchanged.
 
@@ -88,7 +89,8 @@ core/geospatial/              # provider-neutral domain logic (no Django, no Azu
   provenance.py               # evidence manifest, provider+checkpoint versions
   providers/
     telemetry.py              # SRT/CSV/GPX → normalised samples (wraps survey_corners parsing)
-    reconstruction.py         # camera pose + scene geometry provider contract
+    reconstruction.py         # camera pose + scene geometry provider contract (OpenSfM/ODM implementation: §8.3)
+    photogrammetry.py         # multi-tour orthomosaic provider contract (NodeODM / OpenSfM): §8.3
     altitude.py               # async altitude-job contract (LingBot-Map wrapper)
     registration.py           # frame→orthophoto keyframe registration (refactored from aerial_location/locate_aerial.py, §8.2)
   publication/
@@ -195,6 +197,46 @@ Policy hierarchy, but **validate each source** rather than trusting its label.
 6. **Planar-homography limits** (relief, roof heights, perspective, imagery date/datum) stay in the result contract; thresholds are heuristics, not calibrated probabilities.
 7. **Validate before trusting**: the script has never been run end-to-end. Port with synthetic parity tests first (§15), then a real-imagery fixture once supplied.
 
+### 8.3 Photogrammetry provider — one orthomosaic from many tours (OpenDroneMap / OpenSfM)
+
+**Goal:** a fully open-source, Python-driven pipeline that turns frames extracted from *several* videos (tours) of the same area into **one** georeferenced orthomosaic (plus DSM/point cloud/camera poses), runnable on infrastructure DVSA controls. Today nothing in dvsa-api builds an orthomosaic (see the capability review); the aerial_location tool and Path C only *consume* one.
+
+**Engine choice (to verify versions/flags at implementation time)**
+- **OpenDroneMap (ODM)** as the end-to-end engine, run as a **separate NodeODM service** (container) and driven from Python via its REST API / the `pyodm` client: create a task with the selected images + options, poll status, download `orthophoto.tif`, `dsm.tif`, `georeferenced_model.laz`, `cameras.json`, `shots.geojson`, `odm_report`, cancel/remove.
+- **OpenSfM** (the SfM core ODM uses) for lighter or custom runs: camera poses, sparse reconstruction, GCP alignment, exposed as the `reconstruction` provider (Path B) without producing a full mosaic.
+- **Licensing:** ODM/NodeODM are AGPL-3.0; OpenSfM is BSD-2-Clause. Keep ODM as a separate network service (no linking/embedding in dvsa-api) and have legal confirm AGPL obligations for how it is deployed and offered.
+
+**Contract (`core/geospatial/providers/photogrammetry.py`)**
+```
+submit(project: OrthomosaicProject, inputs: list[FrameInput], options: dict) -> job_id
+status(job_id) -> queued|running|completed|failed|cancelled  (+progress, log tail)
+results(job_id) -> {orthophoto_cog, dsm, point_cloud, camera_poses, report, crs, gsd_cm, extent}
+cancel(job_id)  # container/task-level cancellation, not just abandoning a thread
+```
+Provider and ODM/OpenSfM versions, options, and image manifest hash are recorded in the evidence manifest.
+
+**Turning video frames into photogrammetry inputs (the hard part)**
+1. **Frame selection:** do not feed every frame. Choose frames by overlap/baseline (e.g. sharpness/blur filter, minimum parallax, target forward ~70-80 % / side ~60-70 % overlap), per tour, using `FrameTiming` for ordering. This is a *third* frame set alongside dense analysis samples and curated frames (§6.1).
+2. **Metadata injection:** extracted JPEGs carry no EXIF GPS. For each selected frame write EXIF (GPS lat/lon/alt, timestamp, focal length/camera model if known) from synchronized telemetry (Path A, interpolated only within valid intervals). Frames without trustworthy position are included without GPS so ODM can still do SfM, but the result is then **unreferenced** (local coordinates).
+3. **Ground control:** optional `gcp_list.txt` from user-supplied anchors or registered keyframes (Path C, `aerial_location`), giving absolute georeferencing and scale when telemetry is missing.
+4. **Camera model:** record lens/sensor info; video is rolling-shutter and compressed, so expect lower accuracy than stills; surface this in the quality status. Use ODM camera/lens options where the camera is known.
+5. **Multi-tour merging:** all selected frames of all chosen videos go into **one** ODM task so features match across tours. Require a compatible coverage area and a consistent spatial reference (all with telemetry, or shared GCPs). Handle very large sets via ODM's split-merge or by tiling the submission; handle lighting/time-of-day differences with a per-tour quality report rather than silent blending.
+
+**Outputs and how they feed the rest of the plan**
+- **Orthomosaic (COG GeoTIFF)** stored under `{account}/orthomosaics/{project}/…`, with extent, CRS, GSD and per-tile source-frame provenance.
+- **Camera poses (`shots.geojson`/`cameras.json`/`reconstruction`)** → per-frame **camera location/altitude** estimates (Path B) with uncertainty and the fitted reference plane; replaces the need for a separate plane fit when ODM succeeds. Heights remain "above reference plane" unless a vertical datum is established (§2.2).
+- **Orthomosaic as reference** → input to Path C registration for *other* videos of the same area, and to P6: a **SurveyFrame** can be derived from the mosaic extent (its four corners in map coordinates, a validated ground scale), which makes metre-based corner offsets and ground-unit kinematics trustworthy.
+- **Index/chat:** `orthomosaic_id`, `ortho_tile_ref`/pixel position per frame (where the frame lies on the mosaic), `reconstruction_status`, `georeferencing_status` (`georeferenced_telemetry|georeferenced_gcp|unreferenced`).
+
+**Rules**
+1. Unreferenced or unscaled results are published as local/relative only; never present them as geographic or metric (consistent with Path D).
+2. Inputs, selected frames, options and engine versions are immutable per `OrthomosaicRun`; a changed input set creates a new revision (supersede, don't overwrite).
+3. Account isolation on every input, artifact and job; external transfer of frames to a hosted ODM requires the `external_visual_analysis` policy; a self-hosted NodeODM does not leave DVSA infrastructure.
+4. Long-running, GPU/CPU- and memory-heavy: own queue, resource limits, timeouts, cost caps, cancellation at task/container level; budget exhaustion → `partial`.
+5. Dry-run uses a tiny fixture set and never fabricates a georeference.
+
+**Dependencies:** `FrameTiming` (P1), telemetry normalization (P2) for EXIF, registration/GCPs (P4a) for referencing without telemetry, artifact storage + job model from §5/§6.
+
 ### 8.1 Altitude provider (asynchronous contract)
 The attachment describes a **local LingBot-Map script** (camera geometry → reference plane fit → perpendicular distance), not a hosted API. DVSA defines its own adapter that can wrap a managed GPU worker, a containerised script, or an authorised external service:
 
@@ -296,6 +338,14 @@ POST /api/v1/videos/{video_id}/spatial-context/           # anchors, flight offs
 GET  /api/v1/videos/{video_id}/trajectory/
 GET  /api/v1/videos/{video_id}/frames/{frame_id}/spatial/
 ```
+Orthomosaic endpoints (account-scoped):
+```
+POST /api/v1/orthomosaics/                      # create project: video_ids[], options, referencing mode
+GET  /api/v1/orthomosaics/{id}/                 # status, georeferencing_status, quality report
+POST /api/v1/orthomosaics/{id}/runs/            # (re)run -> job id
+GET  /api/v1/orthomosaics/{id}/download/{asset} # orthophoto (COG), dsm, cameras, report
+DELETE /api/v1/orthomosaics/{id}/runs/{run_id}  # cancel
+```
 Per-account auto-trigger mode: `disabled | timestamps_only | telemetry_only | local_visual_analysis | external_visual_analysis`. External mode requires an explicit account policy (permitted providers, image/video transfer, retention, request limits, cost controls).
 
 UI (dvsa-platform console, `/console/videos`): independent badges — *Time: video-derived*; *Horizontal location: estimated/unavailable*; *Vertical result: metric/relative-only/unavailable*; *Enrichment: running/partial/completed*. Frame details show baseline, altitude reference, spatial method, evidence revision. (Frontend lives in the separate dvsa-platform repo → its own PR.)
@@ -332,6 +382,7 @@ Logging: artifact IDs only — no SAS tokens or provider credentials.
 | **P4 — Visual geo alignment** | (a) Productionize `aerial_location/` as `providers/registration.py` with synthetic parity tests; keyframe selection; scene-only results (`ambiguous`/`abstained` → unavailable). (b) Geo-aligned camera reconstruction using registered keyframes as anchors | (a) scene-only estimates with uncertainty + provenance; (b) camera location only with validated alignment |
 | **P5 — Retrieval integration** | Index fields, outbox, chat context, agent instructions, UI badges (platform repo) | Agents quote method/uncertainty; stale revisions never published |
 | **P6 — Post-processing geometry & kinematics** (after P1–P4; index merge path can start after P0) | (a) Index merge/update path + backfill iterator. (b) `SurveyFrame` persisted from `/corners` output + homography/scale. (c) Corner/edge offsets for frames and tracked objects. (d) Ground-unit kinematics from trajectories with `video_offset_us` timing. (e) Publish via outbox; chat context | Derived metrics are revisioned, idempotent, unit-correct (relative when unscaled), and queryable from the index and chat |
+| **P7 — Photogrammetry / multi-tour orthomosaic** (after P1–P2; benefits from P4a) | (a) Spike: NodeODM container + `pyodm` on a small fixture (frames from 2 tours), measure runtime/memory, accuracy with and without GPS. (b) Frame selector + EXIF injection from telemetry. (c) `photogrammetry` provider, `OrthomosaicProject/Run/Artifact` models, storage, endpoints, cancellation. (d) Feed camera poses into Path B; derive `SurveyFrame` from mosaic extent for P6. (e) Index/chat fields | One COG orthomosaic from N tours with an explicit `georeferencing_status`, provenance per input, and camera poses published as estimates with uncertainty |
 
 Dependency: P0 should wait for/rebase on **PR #29**.
 
@@ -352,6 +403,12 @@ Dependency: P0 should wait for/rebase on **PR #29**.
 14. Which derived metrics matter first: distance/offset from each corner, normalised position in the rectangle, per-object speed/heading, or all of them?
 15. Is a backfill over existing index entries acceptable (needs the video-scoped IDs from P0 first), and should it run automatically after each revision or on demand?
 16. Where should object trajectories (`tracking.py`) be stored so kinematics can be recomputed (currently nothing persists them)?
+17. Is AGPL-3.0 ODM acceptable as a separately deployed NodeODM service, and where does it run (local GPU box, Azure Container Apps/AKS, VM)? Any data-egress constraints?
+18. Do the tours have synchronized telemetry (SRT/CSV) for EXIF injection, or must referencing come from GCPs / `aerial_location` registration?
+19. What coverage/overlap do real tours have (single pass vs grid, altitude, camera model) — enough for ODM to succeed from video frames?
+20. Expected scale: frames per tour, number of tours per mosaic, target GSD and acceptable runtime/cost?
+21. Preferred output formats/storage: COG GeoTIFF in blob, plus DSM and point cloud, or orthomosaic only?
+22. Should the orthomosaic also be exposed to the Azure Search index/agents (e.g. frame position on the mosaic), or only via the API/UI?
 
 ---
 
@@ -363,6 +420,7 @@ Essential cases (from the proposal), mapped to layers:
 - **Integration (Django):** duplicate scheduling + worker restart (lease/idempotency); stale-revision publication → superseded; cross-account isolation on every endpoint; outbox retry without re-inference; dry-run never emits coordinates.
 - **Index:** cross-video document identity; `blob_path` filter; search publication retry; schema additive update.
 - **Registration (Path C):** synthetic parity tests — warp a known tile with a known homography and assert the recovered centre, footprint and `geometrically_supported`; unrelated tile → `abstained`; two distant near-equal tiles → `ambiguous`; repetitive texture rejected; non-RGB/non-uint8/missing-CRS rejected; result mapped to `scene_location` only (never `camera_location`); SIFT vs LightGlue backends recorded in provenance; no token in logs; network disabled unless policy allows. Real-imagery test only when fixtures exist (Q12).
+- **Photogrammetry (P7):** frame selector (overlap/blur thresholds, per-tour ordering via `FrameTiming`); EXIF writer round-trips lat/lon/alt/time and omits untrusted positions; provider contract against a fake NodeODM (submit/status/results/cancel, failure, timeout, restart); fixture end-to-end on a tiny synthetic or public dataset producing a valid COG with expected CRS/extent; unreferenced input yields `georeferencing_status=unreferenced` and no geographic fields; changed input set creates a new revision; cross-account isolation; cancellation actually stops the container task.
 - **Post-processing (P6):** corner/edge distances on a synthetic rectangle with known answers; heading-relative vs north-aligned frames not mixed; unscaled input yields relative fields only and null metre fields; speed/heading from a synthetic constant-velocity track against `video_offset_us` (incl. VFR and a segment reset: no derivative across the reset, no extrapolation); superseded revision not published; merge-update idempotency (same payload hash → no write) and retry; backfill pages by `blob_path` prefix and skips unchanged documents; cross-account isolation.
 - **Agent grounding:** consolidator keeps "scene-centre estimate" distinct from "drone location".
 - Commands per CLAUDE.md: `npm test` is the documented default, but this repo's backend tests are pytest (to confirm at P1 start); run tests after any logic change.
@@ -375,6 +433,7 @@ Essential cases (from the proposal), mapped to layers:
 - GPU cost/latency and data-transfer policy → account-level mode gating + budgets.
 - Index re-key (P0) touches live data → runbook + dry-run + per-account rollout.
 - Open knowledge-agent 401 and base `dvsa-index` blocker (from `docs/agentic_retrieval.md` / PR #29 notes) may affect chat verification of P5.
+- Photogrammetry: video frames are rolling-shutter, compressed and often low-overlap, so ODM may fail or produce distorted mosaics; AGPL licensing; heavy CPU/GPU/RAM and long runtimes; multi-tour merges need a consistent spatial reference and similar lighting; unreferenced results must not be presented as geographic.
 - Post-processing: index back-fill touches live data (needs P0 IDs + merge path, dry-run first); visual-mode corners are heading-relative so offsets are only comparable within one survey frame; ground-unit kinematics are only as good as the scale source; trajectories are not persisted today, so P6 depends on a storage decision (Q16).
 - `aerial_location/` is unvalidated (never executed end-to-end); heavy GPU dependency stack; recall limited by reference-imagery coverage; imagery licensing/egress/cost; planar-homography error from relief and imagery date.
 - Time bases: telemetry/video clock drift; cut/trim detection reliability.
@@ -384,7 +443,7 @@ Essential cases (from the proposal), mapped to layers:
 ## 17. Resume checklist
 
 1. Confirm the answers to §14 open questions.
-2. Confirm PR #29 status (merge, then branch from main).
+2. PR #29 and the chat/platform fixes are merged; branch from current `main` (this plan lives on `feat/virtual-location-timestamp`, PR #31).
 3. Re-read in code before starting: `apps/videos/frame_extract.py`, `FrameExtractAPIView._sync_image_entities`, `ingest_video`, `core/azure/document.py`, `core/azure/index_schema.py`, `core/azure/survey_corners.py`, existing events/adapters/orchestration modules (verify names used in §4).
 4. Restate P0 (or P1) scope to the user, get confirmation, then implement on a fresh branch, commit in small steps, **ask before push/PR**.
 5. Update memory with the chosen phase order and decisions.
