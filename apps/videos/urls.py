@@ -21,6 +21,8 @@ urlpatterns = [
     path('baseline-test/', views.BaselineTestAPIView.as_view(), name='baseline-test'),
     # Direct tool: extract the four survey-area corner frames (bypasses RAG/agent).
     path('corners/', views.CornersAPIView.as_view(), name='corners'),
+    # Direct tool: unreferenced orthomosaic via OpenDroneMap (background job; GET polls).
+    path('orthomosaic/', views.OrthomosaicAPIView.as_view(), name='orthomosaic'),
     # Direct tool: extract salient/stride frames into the shared blob layout.
     path('extract-frames/', views.FrameExtractAPIView.as_view(), name='extract-frames'),
 ] + router.urls
