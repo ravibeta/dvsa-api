@@ -679,3 +679,94 @@ class FrameExtractAPIView(APIView):
             ImageEntity.objects.bulk_create(rows)
         except Exception as exc:  # noqa: BLE001
             logger.warning("frame ImageEntity persistence skipped: %s", exc)
+
+
+def _truthy(value) -> bool:
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+class OrthomosaicAPIView(APIView):
+    """Build an (unreferenced) orthomosaic from an account's video with OpenDroneMap.
+
+    A direct tool endpoint like :class:`CornersAPIView`, bypassing the RAG/agent path. The
+    pipeline (see :mod:`core.azure.orthomosaic`, ported from ``generate_orthomosaic.py``)
+    takes minutes and needs Docker with the ODM image, so by default the work runs in a
+    background job and the result is written to the shared frame layout::
+
+        {account_id}/images/{video_pk}/orthomosaic.jpg
+
+    ``PUT`` (``IsAuthenticated``): ``account_id`` (required) plus optional ``video_id`` (a
+    :class:`VideoEntity` pk) or ``sas_url``; without either the account's most recent video is
+    used. Returns ``200`` with a read-SAS ``downloadUrl`` when the orthomosaic already exists,
+    otherwise ``202`` with the job state. Options: ``force`` regenerate even if it exists;
+    ``wait`` run inline and return the finished result (``200``) or the failure (``500``/``503``).
+
+    ``GET`` ``?account_id=&video_id=`` returns the state: ``none | queued | running |
+    completed | failed`` (+ ``downloadUrl`` when completed, ``reason`` when failed). A failed
+    job never affects the rest of the API.
+    """
+
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    permission_classes = [permissions.IsAuthenticated]
+
+    @staticmethod
+    def _resolve(data):
+        """Return ``(entity, source_url, video_pk, error_response)``."""
+        account_id = data.get("account_id")
+        if not account_id:
+            return None, None, None, Response({"error": "account_id is required"},
+                                              status=status.HTTP_400_BAD_REQUEST)
+        video_id, sas_url = data.get("video_id"), data.get("sas_url")
+        entity = None
+        if video_id:
+            entity = VideoEntity.objects.filter(pk=video_id, account_id=account_id).first()
+            if entity is None:
+                return None, None, None, Response({"error": "video not found"},
+                                                  status=status.HTTP_404_NOT_FOUND)
+        elif not sas_url:
+            entity = VideoEntity.objects.filter(account_id=account_id).order_by("-created").first()
+        source_url = sas_url or (entity.sas_url if entity else None)
+        if not source_url:
+            return None, None, None, Response({"error": "no video found for account"},
+                                              status=status.HTTP_404_NOT_FOUND)
+        return entity, source_url, (entity.pk if entity else 0), None
+
+    def put(self, request, pk=None, format=None):
+        entity, source_url, video_pk, error = self._resolve(request.data)
+        if error is not None:
+            return error
+        account_id = str(request.data.get("account_id"))
+        from . import orthomosaic_jobs
+
+        try:
+            result = orthomosaic_jobs.start_job(
+                account_id, video_pk, source_url,
+                force=_truthy(request.data.get("force")), wait=_truthy(request.data.get("wait")))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("orthomosaic request failed")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        body = {"account_id": account_id, "video_pk": video_pk, **result}
+        state = result.get("state")
+        if state == orthomosaic_jobs.COMPLETED:
+            return Response(body, status=status.HTTP_200_OK)
+        if state == orthomosaic_jobs.FAILED:
+            code = (status.HTTP_503_SERVICE_UNAVAILABLE if result.get("unavailable")
+                    else status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(body, status=code)
+        return Response(body, status=status.HTTP_202_ACCEPTED)
+
+    def get(self, request, pk=None, format=None):
+        data = request.query_params
+        account_id, video_id = data.get("account_id"), data.get("video_id")
+        if not account_id:
+            return Response({"error": "account_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not video_id:
+            entity = VideoEntity.objects.filter(account_id=account_id).order_by("-created").first()
+            video_id = entity.pk if entity else None
+        if not video_id:
+            return Response({"error": "no video found for account"}, status=status.HTTP_404_NOT_FOUND)
+        from . import orthomosaic_jobs
+
+        return Response({"account_id": str(account_id), "video_pk": int(video_id),
+                         **orthomosaic_jobs.status(account_id, video_id)}, status=status.HTTP_200_OK)

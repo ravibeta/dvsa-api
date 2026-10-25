@@ -52,6 +52,7 @@ tenacity==9.0.0
 opencv-python==4.11.0.86
 scikit-image==0.24.0
 numpy==2.2.6
+rasterio>=1.3  # orthomosaic export/validation (generate_orthomosaic)
 scipy==1.15.3
 scikit-learn==1.6.1
 
