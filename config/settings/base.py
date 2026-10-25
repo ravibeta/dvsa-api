@@ -441,3 +441,20 @@ DVSA_VEHICLES_MAX_JOBS = os.environ.get("DVSA_VEHICLES_MAX_JOBS", "1")      # co
 DVSA_VEHICLES_SAS_HOURS = os.environ.get("DVSA_VEHICLES_SAS_HOURS", "24")
 DVSA_FFMPEG = os.environ.get("DVSA_FFMPEG", "")    # explicit ffmpeg path (else PATH, else imageio-ffmpeg)
 DVSA_FFPROBE = os.environ.get("DVSA_FFPROBE", "")
+
+# Orthomosaic (OpenDroneMap) generation from uploaded videos: `/videos/orthomosaic/` and the
+# background job started on upload. Needs Docker + the ODM image; when unavailable the job
+# just records `failed` and nothing else in the API is affected.
+DVSA_ORTHOMOSAIC_AUTO = os.environ.get("DVSA_ORTHOMOSAIC_AUTO", "true")   # background job on upload
+DVSA_ORTHOMOSAIC_BACKEND = os.environ.get("DVSA_ORTHOMOSAIC_BACKEND", "docker")
+DVSA_ORTHOMOSAIC_IMAGE = os.environ.get("DVSA_ORTHOMOSAIC_IMAGE", "opendronemap/odm:latest")
+DVSA_ORTHOMOSAIC_ODM_RUN = os.environ.get("DVSA_ORTHOMOSAIC_ODM_RUN", "")  # native backend run.py
+DVSA_ORTHOMOSAIC_LONG_EDGE = os.environ.get("DVSA_ORTHOMOSAIC_LONG_EDGE", "6000")
+DVSA_ORTHOMOSAIC_MAX_MEGAPIXELS = os.environ.get("DVSA_ORTHOMOSAIC_MAX_MEGAPIXELS", "64")
+DVSA_ORTHOMOSAIC_INTERVAL = os.environ.get("DVSA_ORTHOMOSAIC_INTERVAL", "1")  # seconds between frames
+DVSA_ORTHOMOSAIC_MAX_FRAME_SIZE = os.environ.get("DVSA_ORTHOMOSAIC_MAX_FRAME_SIZE", "2560")
+DVSA_ORTHOMOSAIC_CONCURRENCY = os.environ.get("DVSA_ORTHOMOSAIC_CONCURRENCY", "4")
+DVSA_ORTHOMOSAIC_FAST = os.environ.get("DVSA_ORTHOMOSAIC_FAST", "false")
+DVSA_ORTHOMOSAIC_MAX_JOBS = os.environ.get("DVSA_ORTHOMOSAIC_MAX_JOBS", "1")   # concurrent ODM runs
+# Empty = temporary work dir, deleted after upload. Set a path to keep the ODM project cache.
+DVSA_ORTHOMOSAIC_WORK_DIR = os.environ.get("DVSA_ORTHOMOSAIC_WORK_DIR", "")
