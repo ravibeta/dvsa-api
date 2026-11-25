@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Downloaded detector weights (core/vehicles; AGPL YOLO .pt files)
+/models/

@@ -1,0 +1,11 @@
+# Optional detector stack for the vehicle tracking endpoint (/api/v1/videos/vehicles/).
+#
+#   pip install -r requirements/vehicles.txt
+#
+# Ultralytics and the official YOLO weights are AGPL-3.0 (accepted for dvsa-api).
+# torch: install the build that matches the GPU first. RTX 50-series (Blackwell, sm_120) needs
+# the CUDA 12.8+ wheels:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+# Verified: torch 2.11.0+cu128, ultralytics 8.4.218 on Windows 11 / RTX 5060 Laptop GPU.
+-r base.txt
+ultralytics>=8.4,<8.5

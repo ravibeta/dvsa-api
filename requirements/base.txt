@@ -54,6 +54,7 @@ scikit-image==0.24.0
 numpy==2.2.6
 scipy==1.15.3
 scikit-learn==1.6.1
+imageio-ffmpeg>=0.5  # bundled ffmpeg fallback for H.264 output (core/vehicles)
 
 # Geospatial
 geopandas==1.0.1
