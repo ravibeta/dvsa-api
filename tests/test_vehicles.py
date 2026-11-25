@@ -430,6 +430,23 @@ def test_runtime_missing_reports_a_package_name_or_none():
     assert runtime_missing() in (None, "torch", "ultralytics")
 
 
+def test_fresh_source_url_resigns_own_account_blobs_only():
+    class Cfg:
+        storage_account, account_key = "sadronevideo", "a2V5"
+
+    def fake_sas(cfg, blob_name, container=None, ttl_hours=1):
+        return f"https://sadronevideo.blob.core.windows.net/{container}/{blob_name}?sig=fresh"
+
+    stale = "https://sadronevideo.blob.core.windows.net/input/5/abc.mp4?se=2026-09-18&sig=old"
+    with patch("core.azure.blob.read_sas_for_blob", side_effect=fake_sas):
+        fresh = "https://sadronevideo.blob.core.windows.net/input/5/abc.mp4?sig=fresh"
+        assert vehicle_service.fresh_source_url(Cfg(), stale) == fresh
+        other = "https://elsewhere.blob.core.windows.net/input/5/abc.mp4?sig=x"
+        assert vehicle_service.fresh_source_url(Cfg(), other) == other
+        Cfg.account_key = None
+        assert vehicle_service.fresh_source_url(Cfg(), stale) == stale
+
+
 def test_blob_names_layout():
     assert vehicle_service.blob_names("5", 2) == {
         "video": "5/images/2/vehicles/vehicles_tracked.mp4",

@@ -128,6 +128,33 @@ def existing_result(account_id, video_pk, start_s=None, end_s=None,
     return out
 
 
+def fresh_source_url(config: AzureEnvironmentConfig, source_url: str) -> str:
+    """Re-sign a blob URL in our own storage account with a fresh read SAS.
+
+    ``VideoEntity.sas_url`` carries the SAS minted at upload time, which expires (weeks later every
+    download would fail with 403). When the URL points at ``config.storage_account`` and the
+    account key is configured, mint a new short-lived read SAS for the same blob; otherwise return
+    the URL unchanged.
+    """
+    from urllib.parse import unquote, urlparse  # noqa: PLC0415
+
+    from core.azure import blob as azure_blob  # noqa: PLC0415
+
+    try:
+        parsed = urlparse(source_url)
+        account = getattr(config, "storage_account", None)
+        own_host = f"{account}.blob.core.windows.net"
+        if not account or not getattr(config, "account_key", None) or parsed.hostname != own_host:
+            return source_url
+        container, _, blob_name = unquote(parsed.path).lstrip("/").partition("/")
+        if not container or not blob_name:
+            return source_url
+        return azure_blob.read_sas_for_blob(config, blob_name, container=container, ttl_hours=2)
+    except Exception as exc:  # noqa: BLE001 - fall back to the stored URL
+        logger.info("could not re-sign source url: %s", exc)
+        return source_url
+
+
 def _semaphore() -> threading.BoundedSemaphore:
     global _slots
     with _guard:
@@ -163,7 +190,7 @@ def track_vehicles(account_id, video_pk, source_url: str, *, force: bool = False
             raise VehiclesUnavailable(f"{missing} is not installed (pip install -r requirements/vehicles.txt)")
         config = config or AzureEnvironmentConfig.from_settings()
         t0 = time.perf_counter()
-        video_path = azure_blob.download_blob_to_temp(source_url)
+        video_path = azure_blob.download_blob_to_temp(fresh_source_url(config, source_url))
         download_s = time.perf_counter() - t0
         work_dir = tempfile.mkdtemp(prefix="dvsa-vehicles-")
         report = run_vehicle_pipeline(video_path, work_dir, pipeline_config(start_s, end_s), make_detector)
