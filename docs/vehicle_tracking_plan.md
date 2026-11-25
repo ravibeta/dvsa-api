@@ -1,8 +1,62 @@
 # Vehicle tracking video: implementation plan (`/api/v1/videos/vehicles/`)
 
-Status: **plan only, no code yet**. Branch `feat/vehicle-tracking` (off `main` at `cc7df34`).
+Status: **implemented on branch `feat/vehicle-tracking`** (off `main` at `cc7df34`); see section A
+("Decisions and as-built changes") first, which **supersedes** the sections below where they differ.
 Audience: any implementing model (Opus / Sonnet) or developer. Follow the stages in order; each stage
 lists files, exact behaviour, and acceptance checks. Do not skip the "Rules" section.
+
+---
+
+## A. Decisions and as-built changes (2026-11-25)
+
+Owner answers to the open questions:
+
+- **Q1 licence:** AGPL-3.0 for the Ultralytics detector is accepted. The work is an API added to
+  `https://github.com/ravibeta/dvsa-api`; nothing else changes.
+- **Q3 test footage:** account 5 / video 2 (46 s, 1920x1080, nadir, high altitude) or account 2 / video 1
+  (`mainindexedvideo.mp4`, 307 s, 1280x720, nadir city). Both were used.
+- **Q4 execution:** **synchronous**. No background job, no polling, no `wait` flag.
+
+Resulting API (replaces section 3 and 6.1):
+
+| Call | Result |
+|---|---|
+| `PUT {account_id, video_id, force?, start_s?, end_s?}` | Runs inline. `200 {state:"completed", cached, downloadUrl, reportUrl, summary?}`; `400` bad input; `404` video not for that account; `409` another run in progress (`DVSA_VEHICLES_MAX_JOBS`, default 1); `503` detector runtime missing (checked before download); `500` other failure. |
+| `GET ?account_id=&video_id=[&start_s=&end_s=]` | `200 {state:"completed", downloadUrl, reportUrl}` if the result blob exists, else `{state:"none"}`. |
+
+- An existing result is returned (`cached: true`) unless `force=true`.
+- A time-range request writes `vehicles/vehicles_tracked_<start>-<end>.mp4` (dots become `p`, open end
+  is `end`) so a clip never replaces the full-video result.
+- Service module is `apps/videos/vehicles.py` (`track_vehicles`, `existing_result`, `blob_names`), not
+  `vehicle_jobs.py`. `DVSA_VEHICLES_MAX_SECONDS` default is 600.
+
+Changes driven by measurements on the test footage:
+
+| Change | Why (measured) |
+|---|---|
+| Default weights `yolo26x.pt` (not `yolo26m.pt`) | 720p city footage, 4 frames: `yolo26m` found 0-3 vehicles at conf >= 0.25 at every input size; `yolo26x` found 7-25. |
+| `imgsz=0` = auto, 1.5x the frame long side (720p -> 1920, 1080p -> 2880) | 1080p account-5 footage: confident detections per frame 7/0/5 at 1920 vs 19/5/4 at 2560 and 26/2/6 at 3200. Full run: tracked vehicles in view at 2 s rose from 11 to 26; detection 68 -> 170 ms/frame on an RTX 5060 Laptop GPU. |
+| `max_box_frac=0.25` (drop boxes longer than a quarter of the frame) | Whole building blocks and rooftops came out as low-score "truck" boxes. |
+| Activity thresholds `moving_bl_s=0.5`, `stationary_bl_s=0.2` (were 0.25 / 0.08) | Parked ~20 px cars measure 0.04-0.16 BL/s from box jitter; driving cars 1.3-2.2 BL/s. The old thresholds sat inside the noise floor and marked parked cars MOVING. |
+| Failed camera registration reuses the last good motion (was identity) | A single failed step otherwise shifts every track's ground position. The source video also contains real scene cuts (e.g. `mainindexedvideo.mp4` at 223.93 s: 6 of 1500 features matched); there tracks correctly end and new ones start. |
+| `iter_frames(path, start_s)` grabs without decoding to BGR before `start_s`; `probe` timed | Seeking to 210 s cost ~10 s of full decode. |
+| `include_frames` option on the pipeline config | Per-frame counts/inliers in the report, for debugging. |
+
+Verification done:
+
+- `tests/test_vehicles.py`: 35 offline tests (synthetic panning video with a colour detector; endpoint
+  with patched download/pipeline/upload). Full suite: all pass except
+  `test_solution_accelerator_iac.py::test_terraform_fmt_and_validate`, which fails because Windows
+  Application Control blocks the `terraform` binary on this machine (unrelated to this change).
+- Live: `track_vehicles("5", 2, <SAS of account 5 video 2>)` with the real download, detector, tracker,
+  renderer and ffmpeg encode: 46.1 s video -> 1920x1080 H.264 MP4 of the same length in 157 s
+  (+4.6 s download); 59 track IDs (53 lasting >= 1 s), peak 28 in view, 55 mostly stationary, 2 moving,
+  0 camera-registration failures. CLI on `mainindexedvideo.mp4` 210-230 s: 112 IDs, peak 30, 1280x720.
+- **Not verified live:** the real blob upload and the HTTP call through `runserver`, because no storage
+  account key was available on this machine (the upload was redirected to a local folder).
+
+Known limitations seen live: dense rows of parked cars are partly missed; occasional rooftop/house
+"truck" false positives; IDs fragment at scene cuts and when vehicles leave and re-enter the view.
 
 ---
 
