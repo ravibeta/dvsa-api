@@ -423,3 +423,21 @@ AZURE_OPENAI_API_VERSION = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-06-0
 OTEL_EXPORTER_OTLP_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
 OTEL_SERVICE_NAME = os.environ.get("OTEL_SERVICE_NAME", "dvsa-api")
 COMMENTARY_OTEL_SIGNALS = os.environ.get("COMMENTARY_OTEL_SIGNALS", "logs,metrics,traces")
+
+# Vehicle tracking video (`/videos/vehicles/`, apps/videos/vehicles.py, core/vehicles/). The detector
+# needs the optional `ultralytics` + `torch` stack (requirements/vehicles.txt); without it the
+# endpoint returns 503 and nothing else is affected. Ultralytics/YOLO weights are AGPL-3.0.
+DVSA_VEHICLES_WEIGHTS = os.environ.get("DVSA_VEHICLES_WEIGHTS", "yolo26x.pt")
+DVSA_VEHICLES_MODEL_DIR = os.environ.get("DVSA_VEHICLES_MODEL_DIR", str(BASE_DIR / "models"))
+DVSA_VEHICLES_DEVICE = os.environ.get("DVSA_VEHICLES_DEVICE", "")          # "" = auto (cuda > mps > cpu)
+DVSA_VEHICLES_IMGSZ = os.environ.get("DVSA_VEHICLES_IMGSZ", "0")         # 0 = auto (1.5x frame long side)
+DVSA_VEHICLES_CONF = os.environ.get("DVSA_VEHICLES_CONF", "0.10")
+DVSA_VEHICLES_TILE = os.environ.get("DVSA_VEHICLES_TILE", "false")
+DVSA_VEHICLES_TARGET_FPS = os.environ.get("DVSA_VEHICLES_TARGET_FPS", "15")  # detection rate
+DVSA_VEHICLES_MAX_SECONDS = os.environ.get("DVSA_VEHICLES_MAX_SECONDS", "600")  # cap per request
+DVSA_VEHICLES_MOTION_MODEL = os.environ.get("DVSA_VEHICLES_MOTION_MODEL", "similarity")
+DVSA_VEHICLES_MAX_RENDER_EDGE = os.environ.get("DVSA_VEHICLES_MAX_RENDER_EDGE", "1920")
+DVSA_VEHICLES_MAX_JOBS = os.environ.get("DVSA_VEHICLES_MAX_JOBS", "1")      # concurrent runs
+DVSA_VEHICLES_SAS_HOURS = os.environ.get("DVSA_VEHICLES_SAS_HOURS", "24")
+DVSA_FFMPEG = os.environ.get("DVSA_FFMPEG", "")    # explicit ffmpeg path (else PATH, else imageio-ffmpeg)
+DVSA_FFPROBE = os.environ.get("DVSA_FFPROBE", "")

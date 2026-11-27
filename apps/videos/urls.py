@@ -23,4 +23,6 @@ urlpatterns = [
     path('corners/', views.CornersAPIView.as_view(), name='corners'),
     # Direct tool: extract salient/stride frames into the shared blob layout.
     path('extract-frames/', views.FrameExtractAPIView.as_view(), name='extract-frames'),
+    # Direct tool: annotated vehicle tracking MP4 (detect + track + moving/stationary).
+    path('vehicles/', views.VehicleTrackingAPIView.as_view(), name='vehicles'),
 ] + router.urls

@@ -679,3 +679,101 @@ class FrameExtractAPIView(APIView):
             ImageEntity.objects.bulk_create(rows)
         except Exception as exc:  # noqa: BLE001
             logger.warning("frame ImageEntity persistence skipped: %s", exc)
+
+
+def _optional_float(data, name):
+    """Parse an optional float field; raises ``ValueError`` with a client-facing message."""
+    value = data.get(name)
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be a number") from None
+
+
+class VehicleTrackingAPIView(APIView):
+    """Track vehicles in an account's video and return an annotated MP4 (read-SAS URL).
+
+    A direct tool endpoint like :class:`CornersAPIView`, bypassing the RAG/agent path. The
+    pipeline (:mod:`core.vehicles`) detects cars/trucks/buses/motorcycles/bicycles (COCO YOLO),
+    compensates drone motion, tracks each vehicle with a persistent ID and labels it MOVING /
+    STATIONARY / UNKNOWN, then renders boxes, IDs, trails and a counts panel on every frame.
+    Output blobs (see :mod:`apps.videos.vehicles`)::
+
+        {account_id}/images/{video_pk}/vehicles/vehicles_tracked.mp4
+        {account_id}/images/{video_pk}/vehicles/vehicles_tracking.json
+
+    ``PUT`` (``IsAuthenticated``, synchronous; takes about 2-3x the processed video duration on a
+    GPU): ``account_id`` and ``video_id`` (a :class:`VideoEntity` pk) are required. Optional:
+    ``force`` regenerate even if a result exists; ``start_s``/``end_s`` process only that range
+    (stored under a range-specific name). Responses: ``200`` ``{state: "completed", downloadUrl,
+    reportUrl, summary?, cached}``; ``400`` bad input; ``404`` video not found; ``409`` another
+    run is in progress; ``503`` detector runtime unavailable; ``500`` other failure.
+
+    ``GET`` ``?account_id=&video_id=[&start_s=&end_s=]`` returns ``{state: "completed" | "none"}``
+    with fresh SAS URLs when the result exists.
+    """
+
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    permission_classes = [permissions.IsAuthenticated]
+
+    @staticmethod
+    def _resolve(data):
+        """Return ``(entity, start_s, end_s, error_response)``."""
+        account_id, video_id = data.get("account_id"), data.get("video_id")
+        if not account_id:
+            return None, None, None, Response({"error": "account_id is required"},
+                                              status=status.HTTP_400_BAD_REQUEST)
+        if not video_id:
+            return None, None, None, Response({"error": "video_id is required"},
+                                              status=status.HTTP_400_BAD_REQUEST)
+        try:
+            start_s, end_s = _optional_float(data, "start_s"), _optional_float(data, "end_s")
+        except ValueError as exc:
+            return None, None, None, Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if (start_s is not None and start_s < 0) or (
+                end_s is not None and end_s <= (start_s or 0.0)):
+            return None, None, None, Response({"error": "require 0 <= start_s < end_s"},
+                                              status=status.HTTP_400_BAD_REQUEST)
+        entity = None
+        if str(video_id).isdigit():
+            entity = VideoEntity.objects.filter(pk=video_id, account_id=account_id).first()
+        if entity is None or not entity.sas_url:
+            return None, None, None, Response({"error": "video not found"}, status=status.HTTP_404_NOT_FOUND)
+        return entity, start_s, end_s, None
+
+    def put(self, request, pk=None, format=None):
+        entity, start_s, end_s, error = self._resolve(request.data)
+        if error is not None:
+            return error
+        from . import vehicles
+
+        account_id = str(request.data.get("account_id"))
+        try:
+            result = vehicles.track_vehicles(account_id, entity.pk, entity.sas_url,
+                                             force=vehicles._truthy(request.data.get("force")),
+                                             start_s=start_s, end_s=end_s)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("vehicle tracking request failed")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        body = {"account_id": account_id, "video_pk": entity.pk, **result}
+        state = result.get("state")
+        if state == vehicles.COMPLETED:
+            return Response(body, status=status.HTTP_200_OK)
+        if state == vehicles.BUSY:
+            return Response(body, status=status.HTTP_409_CONFLICT)
+        code = (status.HTTP_503_SERVICE_UNAVAILABLE if result.get("unavailable")
+                else status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response(body, status=code)
+
+    def get(self, request, pk=None, format=None):
+        entity, start_s, end_s, error = self._resolve(request.query_params)
+        if error is not None:
+            return error
+        from . import vehicles
+
+        account_id = str(request.query_params.get("account_id"))
+        result = vehicles.existing_result(account_id, entity.pk, start_s, end_s) or {"state": vehicles.NONE}
+        return Response({"account_id": account_id, "video_pk": entity.pk, **result}, status=status.HTTP_200_OK)

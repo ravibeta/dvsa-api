@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Downloaded detector weights (core/vehicles; AGPL YOLO .pt files)
+/models/
+
+# Local startup scripts hold Azure keys and machine paths; never commit them
+/local-startup-scripts/
