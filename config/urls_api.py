@@ -13,4 +13,7 @@ urlpatterns = [
     path("analytics/", include("apps.analytics.urls")),
     path("storage/", include("apps.storage.urls")),
     path("observability/", include("apps.observability.urls")),
+    path("media/", include("apps.media.urls")),
+    path("jobs/", include("apps.jobs.urls")),
+    path("webhooks/", include("apps.notifications.urls")),
 ]

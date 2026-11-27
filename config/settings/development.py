@@ -53,4 +53,7 @@ CORS_ALLOWED_ORIGINS = [
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True
 
+# Allow webhook targets on http(s)://localhost for local receivers.
+DVSA_WEBHOOK_ALLOW_INSECURE_LOCALHOST = os.environ.get("DVSA_WEBHOOK_ALLOW_INSECURE_LOCALHOST", "true")
+
 print("✓ Development settings loaded")

@@ -37,3 +37,6 @@ SENTRY_DSN = None
 
 # Never start ODM jobs from VideoEntity signals during tests.
 DVSA_ORTHOMOSAIC_AUTO = "false"
+
+# WebSocket tests run against an in-process channel layer (no Redis).
+CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
