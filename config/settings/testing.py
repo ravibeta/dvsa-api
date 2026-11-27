@@ -34,3 +34,6 @@ CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True
 
 SENTRY_DSN = None
+
+# Never start ODM jobs from VideoEntity signals during tests.
+DVSA_ORTHOMOSAIC_AUTO = "false"
