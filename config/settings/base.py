@@ -33,6 +33,7 @@ THIRD_PARTY_APPS = [
     "django_filters",
     "drf_spectacular",
     "django_extensions",
+    "channels",
 ]
 
 LOCAL_APPS = [
@@ -41,6 +42,9 @@ LOCAL_APPS = [
     "apps.analytics.apps.AnalyticsConfig",
     "apps.storage.apps.StorageConfig",
     "apps.observability.apps.ObservabilityConfig",
+    "apps.media.apps.MediaConfig",
+    "apps.jobs.apps.JobsConfig",
+    "apps.notifications.apps.NotificationsConfig",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -458,3 +462,23 @@ DVSA_ORTHOMOSAIC_FAST = os.environ.get("DVSA_ORTHOMOSAIC_FAST", "false")
 DVSA_ORTHOMOSAIC_MAX_JOBS = os.environ.get("DVSA_ORTHOMOSAIC_MAX_JOBS", "1")   # concurrent ODM runs
 # Empty = temporary work dir, deleted after upload. Set a path to keep the ODM project cache.
 DVSA_ORTHOMOSAIC_WORK_DIR = os.environ.get("DVSA_ORTHOMOSAIC_WORK_DIR", "")
+
+# Direct-to-cloud uploads (`/media/`), analytics jobs (`/jobs/`) and live alerts
+# (`/webhooks/`, `ws/alerts/`, `ws/flights/<id>/telemetry/`). Storage goes through the
+# cloud-agnostic core.storage; "azure" reuses the AZURE_STORAGE_* settings above.
+DVSA_OBJECT_STORE = os.environ.get("DVSA_OBJECT_STORE", "azure")
+DVSA_UPLOAD_SAS_MINUTES = os.environ.get("DVSA_UPLOAD_SAS_MINUTES", "30")
+DVSA_UPLOAD_MAX_BYTES = os.environ.get("DVSA_UPLOAD_MAX_BYTES", str(20 * 1024 ** 3))  # 20 GiB
+# Shared secret for `/media/events/<provider>/?token=` (e.g. Event Grid BlobCreated); empty = disabled.
+DVSA_STORAGE_EVENT_TOKEN = os.environ.get("DVSA_STORAGE_EVENT_TOKEN", "")
+DVSA_WEBHOOK_ALLOW_INSECURE_LOCALHOST = os.environ.get("DVSA_WEBHOOK_ALLOW_INSECURE_LOCALHOST", "false")
+DVSA_WEBHOOK_TIMEOUT_S = os.environ.get("DVSA_WEBHOOK_TIMEOUT_S", "10")
+DVSA_ALERT_MIN_VEHICLES = os.environ.get("DVSA_ALERT_MIN_VEHICLES", "1")  # alert.detection_triggered
+
+# Django Channels: Redis channel layer (same Redis as Celery unless CHANNEL_REDIS_URL is set).
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {"hosts": [os.environ.get("CHANNEL_REDIS_URL", CELERY_BROKER_URL)]},
+    }
+}
